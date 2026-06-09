@@ -1,7 +1,124 @@
+use super::MemoryBankController;
+
+const ROM_BANK_SIZE: usize = 16 * 1024;
+const RAM_BANK_SIZE: usize = 8 * 1024;
+
+pub(super) struct Mbc1 {
+    rom: Vec<u8>,
+    ram: Vec<u8>,
+    rom_bank_low: u8,
+    bank_high: u8,
+    ram_enabled: bool,
+    ram_banking_mode: bool,
+}
+
+impl Mbc1 {
+    pub(super) fn new(rom: Vec<u8>, ram_size: usize) -> Self {
+        Self {
+            rom,
+            ram: vec![0; ram_size],
+            rom_bank_low: 1,
+            bank_high: 0,
+            ram_enabled: false,
+            ram_banking_mode: false,
+        }
+    }
+
+    fn rom_bank_count(&self) -> usize {
+        (self.rom.len() / ROM_BANK_SIZE).max(1)
+    }
+
+    fn lower_rom_bank(&self) -> usize {
+        if self.ram_banking_mode {
+            ((self.bank_high as usize) << 5) % self.rom_bank_count()
+        } else {
+            0
+        }
+    }
+
+    fn upper_rom_bank(&self) -> usize {
+        let bank = if self.ram_banking_mode {
+            self.rom_bank_low as usize
+        } else {
+            ((self.bank_high as usize) << 5) | self.rom_bank_low as usize
+        };
+        bank % self.rom_bank_count()
+    }
+
+    fn ram_bank(&self) -> usize {
+        if self.ram_banking_mode {
+            self.bank_high as usize
+        } else {
+            0
+        }
+    }
+
+    fn read_rom_bank(&self, bank: usize, offset: usize) -> u8 {
+        let index = bank
+            .checked_mul(ROM_BANK_SIZE)
+            .and_then(|start| start.checked_add(offset));
+        index
+            .and_then(|index| self.rom.get(index))
+            .copied()
+            .unwrap_or(0xff)
+    }
+
+    fn ram_index(&self, address: u16) -> Option<usize> {
+        if !self.ram_enabled || !(0xa000..=0xbfff).contains(&address) {
+            return None;
+        }
+        self.ram_bank()
+            .checked_mul(RAM_BANK_SIZE)?
+            .checked_add((address - 0xa000) as usize)
+            .filter(|index| *index < self.ram.len())
+    }
+}
+
+impl MemoryBankController for Mbc1 {
+    fn read_rom(&self, address: u16) -> u8 {
+        match address {
+            0x0000..=0x3fff => self.read_rom_bank(self.lower_rom_bank(), address as usize),
+            0x4000..=0x7fff => {
+                self.read_rom_bank(self.upper_rom_bank(), (address - 0x4000) as usize)
+            }
+            _ => 0xff,
+        }
+    }
+
+    fn write_rom(&mut self, address: u16, value: u8) {
+        match address {
+            0x0000..=0x1fff => self.ram_enabled = value & 0x0f == 0x0a,
+            0x2000..=0x3fff => {
+                self.rom_bank_low = value & 0x1f;
+                if self.rom_bank_low == 0 {
+                    self.rom_bank_low = 1;
+                }
+            }
+            0x4000..=0x5fff => self.bank_high = value & 0x03,
+            0x6000..=0x7fff => self.ram_banking_mode = value & 0x01 != 0,
+            _ => {}
+        }
+    }
+
+    fn read_ram(&self, address: u16) -> u8 {
+        self.ram_index(address)
+            .and_then(|index| self.ram.get(index))
+            .copied()
+            .unwrap_or(0xff)
+    }
+
+    fn write_ram(&mut self, address: u16, value: u8) {
+        if let Some(index) = self.ram_index(address)
+            && let Some(byte) = self.ram.get_mut(index)
+        {
+            *byte = value;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cartridge::MemoryBankController;
 
     const BANK_SIZE: usize = 16 * 1024;
 
