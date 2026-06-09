@@ -1,9 +1,6 @@
 use thiserror::Error;
 
-use super::{
-    Cpu, Memory,
-    registers::{Flag, Registers},
-};
+use super::{Cpu, Memory, registers::Flag};
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub enum CpuError {
@@ -31,11 +28,7 @@ impl Cpu {
         Ok(cycles)
     }
 
-    fn execute_base<M: Memory>(
-        &mut self,
-        memory: &mut M,
-        opcode: u8,
-    ) -> Result<u8, CpuError> {
+    fn execute_base<M: Memory>(&mut self, memory: &mut M, opcode: u8) -> Result<u8, CpuError> {
         if (0x40..=0x7f).contains(&opcode) {
             if opcode == 0x76 {
                 if !self.ime && self.pending_interrupts(memory) != 0 {
@@ -446,10 +439,11 @@ impl Cpu {
         self.registers.a = result;
         self.registers.set_flag(Flag::Zero, result == 0);
         self.registers.set_flag(Flag::Subtract, false);
-        self.registers
-            .set_flag(Flag::HalfCarry, (old & 0x0f) + (value & 0x0f) + carry > 0x0f);
-        self.registers
-            .set_flag(Flag::Carry, carry1 || carry2);
+        self.registers.set_flag(
+            Flag::HalfCarry,
+            (old & 0x0f) + (value & 0x0f) + carry > 0x0f,
+        );
+        self.registers.set_flag(Flag::Carry, carry1 || carry2);
     }
 
     fn subtract_a(&mut self, value: u8, with_carry: bool, store: bool) {
@@ -464,13 +458,11 @@ impl Cpu {
         self.registers.set_flag(Flag::Subtract, true);
         self.registers
             .set_flag(Flag::HalfCarry, (old & 0x0f) < (value & 0x0f) + carry);
-        self.registers
-            .set_flag(Flag::Carry, borrow1 || borrow2);
+        self.registers.set_flag(Flag::Carry, borrow1 || borrow2);
     }
 
     fn set_logic_flags(&mut self, half_carry: bool) {
-        self.registers
-            .set_flag(Flag::Zero, self.registers.a == 0);
+        self.registers.set_flag(Flag::Zero, self.registers.a == 0);
         self.registers.set_flag(Flag::Subtract, false);
         self.registers.set_flag(Flag::HalfCarry, half_carry);
         self.registers.set_flag(Flag::Carry, false);
@@ -489,8 +481,7 @@ impl Cpu {
         let result = value.wrapping_sub(1);
         self.registers.set_flag(Flag::Zero, result == 0);
         self.registers.set_flag(Flag::Subtract, true);
-        self.registers
-            .set_flag(Flag::HalfCarry, value & 0x0f == 0);
+        self.registers.set_flag(Flag::HalfCarry, value & 0x0f == 0);
         result
     }
 
@@ -499,10 +490,8 @@ impl Cpu {
         let (result, carry) = old.overflowing_add(value);
         self.registers.set_hl(result);
         self.registers.set_flag(Flag::Subtract, false);
-        self.registers.set_flag(
-            Flag::HalfCarry,
-            (old & 0x0fff) + (value & 0x0fff) > 0x0fff,
-        );
+        self.registers
+            .set_flag(Flag::HalfCarry, (old & 0x0fff) + (value & 0x0fff) > 0x0fff);
         self.registers.set_flag(Flag::Carry, carry);
     }
 

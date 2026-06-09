@@ -173,8 +173,7 @@ mod tests {
     fn increment_and_decrement_preserve_carry() {
         let (mut cpu, mut memory) = cpu_with_program(&[0x04, 0x05]);
         cpu.registers_mut().b = 0x0f;
-        cpu.registers_mut()
-            .set_flag(registers::Flag::Carry, true);
+        cpu.registers_mut().set_flag(registers::Flag::Carry, true);
 
         cpu.step(&mut memory).expect("INC 应执行成功");
         assert_eq!(cpu.registers().b, 0x10);
@@ -190,8 +189,7 @@ mod tests {
 
     #[test]
     fn executes_sixteen_bit_load_and_add() {
-        let (mut cpu, mut memory) =
-            cpu_with_program(&[0x21, 0xff, 0x0f, 0x01, 0x01, 0x00, 0x09]);
+        let (mut cpu, mut memory) = cpu_with_program(&[0x21, 0xff, 0x0f, 0x01, 0x01, 0x00, 0x09]);
 
         assert_eq!(cpu.step(&mut memory).expect("LD HL 应执行成功"), 12);
         assert_eq!(cpu.step(&mut memory).expect("LD BC 应执行成功"), 12);
@@ -221,8 +219,7 @@ mod tests {
     #[test]
     fn conditional_jump_reports_taken_and_not_taken_cycles() {
         let (mut cpu, mut memory) = cpu_with_program(&[0x20, 0x02, 0x00, 0x00]);
-        cpu.registers_mut()
-            .set_flag(registers::Flag::Zero, false);
+        cpu.registers_mut().set_flag(registers::Flag::Zero, false);
 
         assert_eq!(cpu.step(&mut memory).expect("JR NZ 应执行成功"), 12);
         assert_eq!(cpu.registers().pc, 0x0104);
@@ -317,11 +314,9 @@ mod tests {
 
     #[test]
     fn bit_preserves_carry_and_res_set_change_target() {
-        let (mut cpu, mut memory) =
-            cpu_with_program(&[0xcb, 0x78, 0xcb, 0xb8, 0xcb, 0xf8]);
+        let (mut cpu, mut memory) = cpu_with_program(&[0xcb, 0x78, 0xcb, 0xb8, 0xcb, 0xf8]);
         cpu.registers_mut().b = 0x80;
-        cpu.registers_mut()
-            .set_flag(registers::Flag::Carry, true);
+        cpu.registers_mut().set_flag(registers::Flag::Carry, true);
 
         cpu.step(&mut memory).expect("BIT 7,B 应执行成功");
         assert!(!cpu.registers().flag(registers::Flag::Zero));
