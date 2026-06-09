@@ -297,4 +297,127 @@ mod tests {
             assert!(result.is_ok(), "操作码 0x{opcode:02x} 未实现：{result:?}");
         }
     }
+
+    #[test]
+    fn executes_cb_rotate_and_reports_memory_cycles() {
+        let (mut cpu, mut memory) = cpu_with_program(&[0xcb, 0x00, 0xcb, 0x06]);
+        cpu.registers_mut().b = 0x80;
+        cpu.registers_mut().set_hl(0xc000);
+        memory.write8(0xc000, 0x01);
+
+        assert_eq!(cpu.step(&mut memory).expect("RLC B 应执行成功"), 8);
+        assert_eq!(cpu.registers().b, 0x01);
+        assert!(cpu.registers().flag(registers::Flag::Carry));
+        assert!(!cpu.registers().flag(registers::Flag::Zero));
+
+        assert_eq!(cpu.step(&mut memory).expect("RLC (HL) 应执行成功"), 16);
+        assert_eq!(memory.read8(0xc000), 0x02);
+        assert!(!cpu.registers().flag(registers::Flag::Carry));
+    }
+
+    #[test]
+    fn bit_preserves_carry_and_res_set_change_target() {
+        let (mut cpu, mut memory) =
+            cpu_with_program(&[0xcb, 0x78, 0xcb, 0xb8, 0xcb, 0xf8]);
+        cpu.registers_mut().b = 0x80;
+        cpu.registers_mut()
+            .set_flag(registers::Flag::Carry, true);
+
+        cpu.step(&mut memory).expect("BIT 7,B 应执行成功");
+        assert!(!cpu.registers().flag(registers::Flag::Zero));
+        assert!(cpu.registers().flag(registers::Flag::HalfCarry));
+        assert!(cpu.registers().flag(registers::Flag::Carry));
+
+        cpu.step(&mut memory).expect("RES 7,B 应执行成功");
+        assert_eq!(cpu.registers().b, 0x00);
+        cpu.step(&mut memory).expect("SET 7,B 应执行成功");
+        assert_eq!(cpu.registers().b, 0x80);
+    }
+
+    #[test]
+    fn decodes_every_cb_opcode() {
+        for opcode in 0u8..=u8::MAX {
+            let (mut cpu, mut memory) = cpu_with_program(&[0xcb, opcode]);
+            let result = cpu.step(&mut memory);
+            assert!(
+                result.is_ok(),
+                "CB 操作码 0x{opcode:02x} 未实现：{result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn services_highest_priority_interrupt_and_pushes_pc() {
+        let (mut cpu, mut memory) = cpu_with_program(&[0x00]);
+        cpu.ime = true;
+        memory.write8(0xffff, 0x1f);
+        memory.write8(0xff0f, 0x15);
+
+        assert_eq!(cpu.step(&mut memory).expect("中断应处理成功"), 20);
+
+        assert_eq!(cpu.registers().pc, 0x0040);
+        assert_eq!(cpu.registers().sp, 0xfffc);
+        assert_eq!(memory.read16(0xfffc), 0x0100);
+        assert_eq!(memory.read8(0xff0f), 0x14);
+        assert!(!cpu.ime());
+    }
+
+    #[test]
+    fn ei_enables_interrupts_after_following_instruction() {
+        let (mut cpu, mut memory) = cpu_with_program(&[0xfb, 0x00, 0x00]);
+        memory.write8(0xffff, 0x01);
+        memory.write8(0xff0f, 0x01);
+
+        assert_eq!(cpu.step(&mut memory).expect("EI 应执行成功"), 4);
+        assert!(!cpu.ime());
+        assert_eq!(cpu.registers().pc, 0x0101);
+
+        assert_eq!(cpu.step(&mut memory).expect("NOP 应执行成功"), 4);
+        assert!(cpu.ime());
+        assert_eq!(cpu.registers().pc, 0x0102);
+
+        assert_eq!(cpu.step(&mut memory).expect("中断应处理成功"), 20);
+        assert_eq!(cpu.registers().pc, 0x0040);
+    }
+
+    #[test]
+    fn halt_waits_without_pending_interrupt() {
+        let (mut cpu, mut memory) = cpu_with_program(&[0x76, 0x00]);
+
+        assert_eq!(cpu.step(&mut memory).expect("HALT 应执行成功"), 4);
+        assert!(cpu.halted());
+        assert_eq!(cpu.registers().pc, 0x0101);
+
+        assert_eq!(cpu.step(&mut memory).expect("HALT 等待应成功"), 4);
+        assert_eq!(cpu.registers().pc, 0x0101);
+    }
+
+    #[test]
+    fn pending_interrupt_wakes_halt_and_is_serviced_when_ime_is_set() {
+        let (mut cpu, mut memory) = cpu_with_program(&[0x76]);
+        cpu.step(&mut memory).expect("HALT 应执行成功");
+        cpu.ime = true;
+        memory.write8(0xffff, 0x04);
+        memory.write8(0xff0f, 0x04);
+
+        assert_eq!(cpu.step(&mut memory).expect("中断应处理成功"), 20);
+
+        assert!(!cpu.halted());
+        assert_eq!(cpu.registers().pc, 0x0050);
+    }
+
+    #[test]
+    fn halt_bug_suppresses_next_opcode_increment() {
+        let (mut cpu, mut memory) = cpu_with_program(&[0x76, 0x3e, 0x12]);
+        memory.write8(0xffff, 0x01);
+        memory.write8(0xff0f, 0x01);
+
+        cpu.step(&mut memory).expect("HALT 应执行成功");
+        assert!(!cpu.halted());
+
+        cpu.step(&mut memory).expect("HALT bug 后的 LD 应执行成功");
+
+        assert_eq!(cpu.registers().a, 0x3e);
+        assert_eq!(cpu.registers().pc, 0x0102);
+    }
 }
