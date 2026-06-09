@@ -276,9 +276,9 @@ impl Ppu {
         }
 
         let mut background_colors = [0u8; 160];
-        for x in 0..160 {
+        for (x, background_color) in background_colors.iter_mut().enumerate() {
             let color = self.background_or_window_color(x as u8);
-            background_colors[x] = color;
+            *background_color = color;
             self.framebuffer
                 .set_pixel(x, self.ly as usize, palette_shade(self.bgp, color));
         }
@@ -312,7 +312,11 @@ impl Ppu {
             } else {
                 0x9800
             };
-            (base, x.wrapping_add(self.scx), self.ly.wrapping_add(self.scy))
+            (
+                base,
+                x.wrapping_add(self.scx),
+                self.ly.wrapping_add(self.scy),
+            )
         };
 
         let tile_x = u16::from(pixel_x / 8);
@@ -348,7 +352,7 @@ impl Ppu {
         }
         sprites.sort_by_key(|(index, raw_x, _, _, _)| (*raw_x, *index));
 
-        for x in 0..160usize {
+        for (x, background_color) in background_colors.iter().enumerate() {
             for (_, raw_x, raw_y, tile_number, attributes) in &sprites {
                 let left = i16::from(*raw_x) - 8;
                 let local_x = x as i16 - left;
@@ -379,7 +383,7 @@ impl Ppu {
                     continue;
                 }
 
-                if attributes & 0x80 == 0 || background_colors[x] == 0 {
+                if attributes & 0x80 == 0 || *background_color == 0 {
                     let palette = if attributes & 0x10 != 0 {
                         self.obp1
                     } else {
