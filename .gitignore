@@ -1,5 +1,5 @@
-/target
-/test-roms
-/docs
-/roms
-/tests/blargg
+/target/*
+/test-roms/*
+/docs/*
+/roms/*
+/tests/blargg/*
