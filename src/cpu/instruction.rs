@@ -13,8 +13,16 @@ pub enum CpuError {
 
 impl Cpu {
     pub fn step<M: Memory>(&mut self, memory: &mut M) -> Result<u8, CpuError> {
+        let pending = self.pending_interrupts(memory);
         if self.halted {
-            return Ok(4);
+            if pending == 0 {
+                return Ok(4);
+            }
+            self.halted = false;
+        }
+
+        if self.ime && pending != 0 {
+            return Ok(self.service_interrupt(memory, pending));
         }
 
         let opcode = self.fetch_byte(memory);
@@ -30,7 +38,11 @@ impl Cpu {
     ) -> Result<u8, CpuError> {
         if (0x40..=0x7f).contains(&opcode) {
             if opcode == 0x76 {
-                self.halted = true;
+                if !self.ime && self.pending_interrupts(memory) != 0 {
+                    self.halt_bug = true;
+                } else {
+                    self.halted = true;
+                }
                 return Ok(4);
             }
             let target = (opcode >> 3) & 0x07;
@@ -259,7 +271,10 @@ impl Cpu {
                 self.registers.pc = self.pop(memory);
                 Ok(16)
             }
-            0xcb => Err(CpuError::InvalidOpcode(opcode)),
+            0xcb => {
+                let extended_opcode = self.fetch_byte(memory);
+                Ok(self.execute_cb(memory, extended_opcode))
+            }
             0xcd => {
                 let address = self.fetch_word(memory);
                 self.push(memory, self.registers.pc);
@@ -575,6 +590,76 @@ impl Cpu {
         if self.ime_enable_delay == 0 {
             self.ime = true;
         }
+    }
+
+    fn execute_cb<M: Memory>(&mut self, memory: &mut M, opcode: u8) -> u8 {
+        let group = opcode >> 6;
+        let operation = (opcode >> 3) & 0x07;
+        let target = opcode & 0x07;
+        let value = self.read_r8(memory, target);
+
+        match group {
+            0 => {
+                let old_carry = u8::from(self.registers.flag(Flag::Carry));
+                let (result, carry) = match operation {
+                    0 => (value.rotate_left(1), value & 0x80 != 0),
+                    1 => (value.rotate_right(1), value & 0x01 != 0),
+                    2 => ((value << 1) | old_carry, value & 0x80 != 0),
+                    3 => ((value >> 1) | (old_carry << 7), value & 0x01 != 0),
+                    4 => (value << 1, value & 0x80 != 0),
+                    5 => ((value >> 1) | (value & 0x80), value & 0x01 != 0),
+                    6 => (value.rotate_left(4), false),
+                    7 => (value >> 1, value & 0x01 != 0),
+                    _ => unreachable!("CB 旋转操作索引始终为 0..=7"),
+                };
+                self.write_r8(memory, target, result);
+                self.registers.set_flag(Flag::Zero, result == 0);
+                self.registers.set_flag(Flag::Subtract, false);
+                self.registers.set_flag(Flag::HalfCarry, false);
+                self.registers.set_flag(Flag::Carry, carry);
+                if target == 6 { 16 } else { 8 }
+            }
+            1 => {
+                self.registers
+                    .set_flag(Flag::Zero, value & (1 << operation) == 0);
+                self.registers.set_flag(Flag::Subtract, false);
+                self.registers.set_flag(Flag::HalfCarry, true);
+                if target == 6 { 12 } else { 8 }
+            }
+            2 => {
+                self.write_r8(memory, target, value & !(1 << operation));
+                if target == 6 { 16 } else { 8 }
+            }
+            3 => {
+                self.write_r8(memory, target, value | (1 << operation));
+                if target == 6 { 16 } else { 8 }
+            }
+            _ => unreachable!("CB 指令组始终为 0..=3"),
+        }
+    }
+
+    fn pending_interrupts<M: Memory>(&self, memory: &M) -> u8 {
+        memory.read8(0xffff) & memory.read8(0xff0f) & 0x1f
+    }
+
+    fn service_interrupt<M: Memory>(&mut self, memory: &mut M, pending: u8) -> u8 {
+        let index = pending.trailing_zeros() as u8;
+        let requested = memory.read8(0xff0f);
+        memory.write8(0xff0f, requested & !(1 << index));
+
+        self.ime = false;
+        self.ime_enable_delay = 0;
+        self.halted = false;
+        self.push(memory, self.registers.pc);
+        self.registers.pc = match index {
+            0 => 0x0040,
+            1 => 0x0048,
+            2 => 0x0050,
+            3 => 0x0058,
+            4 => 0x0060,
+            _ => unreachable!("中断索引始终为 0..=4"),
+        };
+        20
     }
 }
 
