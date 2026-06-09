@@ -270,13 +270,146 @@ impl Ppu {
         }
     }
 
-    fn render_scanline(&mut self) {}
+    fn render_scanline(&mut self) {
+        if self.ly >= 144 {
+            return;
+        }
+
+        let mut background_colors = [0u8; 160];
+        for x in 0..160 {
+            let color = self.background_or_window_color(x as u8);
+            background_colors[x] = color;
+            self.framebuffer
+                .set_pixel(x, self.ly as usize, palette_shade(self.bgp, color));
+        }
+
+        if self.lcdc & 0x02 != 0 {
+            self.render_sprites(&background_colors);
+        }
+    }
+
+    fn background_or_window_color(&self, x: u8) -> u8 {
+        if self.lcdc & 0x01 == 0 {
+            return 0;
+        }
+
+        let window_visible =
+            self.lcdc & 0x20 != 0 && self.ly >= self.wy && u16::from(x) + 7 >= u16::from(self.wx);
+        let (map_base, pixel_x, pixel_y) = if window_visible {
+            let base = if self.lcdc & 0x40 != 0 {
+                0x9c00
+            } else {
+                0x9800
+            };
+            (
+                base,
+                x.wrapping_add(7).wrapping_sub(self.wx),
+                self.ly.wrapping_sub(self.wy),
+            )
+        } else {
+            let base = if self.lcdc & 0x08 != 0 {
+                0x9c00
+            } else {
+                0x9800
+            };
+            (base, x.wrapping_add(self.scx), self.ly.wrapping_add(self.scy))
+        };
+
+        let tile_x = u16::from(pixel_x / 8);
+        let tile_y = u16::from(pixel_y / 8);
+        let map_address = map_base + tile_y * 32 + tile_x;
+        let tile_number = self.read_vram_raw(map_address);
+        let tile_address = if self.lcdc & 0x10 != 0 {
+            0x8000 + u16::from(tile_number) * 16
+        } else {
+            (0x9000i32 + i32::from(tile_number as i8) * 16) as u16
+        };
+        self.tile_color(tile_address, pixel_x % 8, pixel_y % 8)
+    }
+
+    fn render_sprites(&mut self, background_colors: &[u8; 160]) {
+        let sprite_height = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
+        let mut sprites = Vec::with_capacity(10);
+
+        for index in 0..40usize {
+            let start = index * 4;
+            let raw_y = self.oam[start];
+            let top = i16::from(raw_y) - 16;
+            let line = i16::from(self.ly);
+            if line >= top && line < top + sprite_height && sprites.len() < 10 {
+                sprites.push((
+                    index,
+                    self.oam[start + 1],
+                    raw_y,
+                    self.oam[start + 2],
+                    self.oam[start + 3],
+                ));
+            }
+        }
+        sprites.sort_by_key(|(index, raw_x, _, _, _)| (*raw_x, *index));
+
+        for x in 0..160usize {
+            for (_, raw_x, raw_y, tile_number, attributes) in &sprites {
+                let left = i16::from(*raw_x) - 8;
+                let local_x = x as i16 - left;
+                if !(0..8).contains(&local_x) {
+                    continue;
+                }
+
+                let top = i16::from(*raw_y) - 16;
+                let mut local_y = i16::from(self.ly) - top;
+                if attributes & 0x40 != 0 {
+                    local_y = sprite_height - 1 - local_y;
+                }
+                let pixel_x = if attributes & 0x20 != 0 {
+                    7 - local_x as u8
+                } else {
+                    local_x as u8
+                };
+                let (tile, row) = if sprite_height == 16 {
+                    (
+                        (tile_number & 0xfe).wrapping_add((local_y / 8) as u8),
+                        (local_y % 8) as u8,
+                    )
+                } else {
+                    (*tile_number, local_y as u8)
+                };
+                let color = self.tile_color(0x8000 + u16::from(tile) * 16, pixel_x, row);
+                if color == 0 {
+                    continue;
+                }
+
+                if attributes & 0x80 == 0 || background_colors[x] == 0 {
+                    let palette = if attributes & 0x10 != 0 {
+                        self.obp1
+                    } else {
+                        self.obp0
+                    };
+                    self.framebuffer
+                        .set_pixel(x, self.ly as usize, palette_shade(palette, color));
+                }
+                break;
+            }
+        }
+    }
+
+    fn tile_color(&self, tile_address: u16, x: u8, y: u8) -> u8 {
+        let row_address = tile_address + u16::from(y) * 2;
+        let low = self.read_vram_raw(row_address);
+        let high = self.read_vram_raw(row_address + 1);
+        let bit = 7 - x;
+        ((high >> bit) & 1) << 1 | ((low >> bit) & 1)
+    }
 }
 
 impl Default for Ppu {
     fn default() -> Self {
         Self::post_boot()
     }
+}
+
+fn palette_shade(palette: u8, color: u8) -> Shade {
+    Shade::from_color((palette >> (color * 2)) & 0x03)
 }
 
 #[cfg(test)]
