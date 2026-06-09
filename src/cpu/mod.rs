@@ -1,6 +1,77 @@
 pub mod instruction;
 pub mod registers;
 
+use registers::Registers;
+
+pub trait Memory {
+    fn read8(&self, address: u16) -> u8;
+    fn write8(&mut self, address: u16, value: u8);
+
+    fn read16(&self, address: u16) -> u16 {
+        let low = self.read8(address) as u16;
+        let high = self.read8(address.wrapping_add(1)) as u16;
+        low | high << 8
+    }
+
+    fn write16(&mut self, address: u16, value: u16) {
+        self.write8(address, value as u8);
+        self.write8(address.wrapping_add(1), (value >> 8) as u8);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Cpu {
+    registers: Registers,
+    ime: bool,
+    ime_enable_delay: u8,
+    halted: bool,
+    halt_bug: bool,
+}
+
+impl Cpu {
+    pub fn post_boot() -> Self {
+        Self {
+            registers: Registers::post_boot(),
+            ime: false,
+            ime_enable_delay: 0,
+            halted: false,
+            halt_bug: false,
+        }
+    }
+
+    pub fn registers(&self) -> &Registers {
+        &self.registers
+    }
+
+    pub fn registers_mut(&mut self) -> &mut Registers {
+        &mut self.registers
+    }
+
+    pub fn ime(&self) -> bool {
+        self.ime
+    }
+
+    pub fn halted(&self) -> bool {
+        self.halted
+    }
+
+    fn fetch_byte(&mut self, memory: &impl Memory) -> u8 {
+        let value = memory.read8(self.registers.pc);
+        if self.halt_bug {
+            self.halt_bug = false;
+        } else {
+            self.registers.pc = self.registers.pc.wrapping_add(1);
+        }
+        value
+    }
+
+    fn fetch_word(&mut self, memory: &impl Memory) -> u16 {
+        let low = self.fetch_byte(memory) as u16;
+        let high = self.fetch_byte(memory) as u16;
+        low | high << 8
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
