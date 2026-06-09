@@ -2,12 +2,12 @@ use crate::{
     cartridge::Cartridge,
     cpu::Memory,
     joypad::{Joypad, JoypadButton},
+    ppu::{Ppu, framebuffer::Framebuffer},
     timer::Timer,
 };
 
-const VRAM_SIZE: usize = 0x2000;
 const WRAM_SIZE: usize = 0x2000;
-const OAM_SIZE: usize = 0x00a0;
+const OAM_SIZE: u16 = 0x00a0;
 const IO_SIZE: usize = 0x0080;
 const HRAM_SIZE: usize = 0x007f;
 
@@ -23,38 +23,38 @@ pub enum Interrupt {
 
 pub struct Bus {
     cartridge: Cartridge,
-    vram: [u8; VRAM_SIZE],
     wram: [u8; WRAM_SIZE],
-    oam: [u8; OAM_SIZE],
     io: [u8; IO_SIZE],
     hram: [u8; HRAM_SIZE],
     timer: Timer,
     joypad: Joypad,
+    ppu: Ppu,
     interrupt_flags: u8,
     interrupt_enable: u8,
     dma_source: u16,
     dma_index: u16,
     dma_cycle: u8,
     dma_active: bool,
+    frame_ready: bool,
 }
 
 impl Bus {
     pub fn new(cartridge: Cartridge) -> Self {
         Self {
             cartridge,
-            vram: [0; VRAM_SIZE],
             wram: [0; WRAM_SIZE],
-            oam: [0; OAM_SIZE],
             io: [0; IO_SIZE],
             hram: [0; HRAM_SIZE],
             timer: Timer::new(),
             joypad: Joypad::new(),
+            ppu: Ppu::post_boot(),
             interrupt_flags: 0xe1,
             interrupt_enable: 0,
             dma_source: 0,
             dma_index: 0,
             dma_cycle: 0,
             dma_active: false,
+            frame_ready: false,
         }
     }
 
@@ -62,10 +62,18 @@ impl Bus {
         self.interrupt_flags |= interrupt as u8;
     }
 
-    pub fn tick(&mut self, cycles: u16) {
+    pub fn tick(&mut self, cycles: u32) {
         if self.timer.tick(cycles) {
             self.request_interrupt(Interrupt::Timer);
         }
+        let ppu_events = self.ppu.tick(cycles);
+        if ppu_events.vblank_interrupt {
+            self.request_interrupt(Interrupt::VBlank);
+        }
+        if ppu_events.stat_interrupt {
+            self.request_interrupt(Interrupt::LcdStat);
+        }
+        self.frame_ready |= ppu_events.frame_ready;
         for _ in 0..cycles {
             self.tick_dma();
         }
@@ -79,6 +87,14 @@ impl Bus {
 
     pub fn dma_active(&self) -> bool {
         self.dma_active
+    }
+
+    pub fn framebuffer(&self) -> &Framebuffer {
+        self.ppu.framebuffer()
+    }
+
+    pub fn take_frame_ready(&mut self) -> bool {
+        std::mem::take(&mut self.frame_ready)
     }
 
     pub fn read_byte(&self, address: u16) -> u8 {
@@ -98,18 +114,20 @@ impl Bus {
     fn read_unrestricted(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x7fff => self.cartridge.read_rom(address),
-            0x8000..=0x9fff => self.vram[(address - 0x8000) as usize],
+            0x8000..=0x9fff => self.ppu.read_vram(address),
             0xa000..=0xbfff => self.cartridge.read_ram(address),
             0xc000..=0xdfff => self.wram[(address - 0xc000) as usize],
             0xe000..=0xfdff => self.wram[(address - 0xe000) as usize],
-            0xfe00..=0xfe9f => self.oam[(address - 0xfe00) as usize],
+            0xfe00..=0xfe9f => self.ppu.read_oam(address),
             0xfea0..=0xfeff => 0xff,
             0xff00 => self.joypad.read(),
             0xff01..=0xff03 => self.io[(address - 0xff00) as usize],
             0xff04..=0xff07 => self.timer.read(address),
             0xff08..=0xff0e => self.io[(address - 0xff00) as usize],
             0xff0f => self.interrupt_flags,
-            0xff10..=0xff7f => self.io[(address - 0xff00) as usize],
+            0xff10..=0xff3f => self.io[(address - 0xff00) as usize],
+            0xff40..=0xff4b => self.ppu.read_register(address),
+            0xff4c..=0xff7f => self.io[(address - 0xff00) as usize],
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize],
             0xffff => self.interrupt_enable,
         }
@@ -118,11 +136,11 @@ impl Bus {
     fn write_unrestricted(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x7fff => self.cartridge.write_rom(address, value),
-            0x8000..=0x9fff => self.vram[(address - 0x8000) as usize] = value,
+            0x8000..=0x9fff => self.ppu.write_vram(address, value),
             0xa000..=0xbfff => self.cartridge.write_ram(address, value),
             0xc000..=0xdfff => self.wram[(address - 0xc000) as usize] = value,
             0xe000..=0xfdff => self.wram[(address - 0xe000) as usize] = value,
-            0xfe00..=0xfe9f => self.oam[(address - 0xfe00) as usize] = value,
+            0xfe00..=0xfe9f => self.ppu.write_oam(address, value),
             0xfea0..=0xfeff => {}
             0xff00 => {
                 if self.joypad.write(value) {
@@ -133,15 +151,17 @@ impl Bus {
             0xff04..=0xff07 => self.timer.write(address, value),
             0xff08..=0xff0e => self.io[(address - 0xff00) as usize] = value,
             0xff0f => self.interrupt_flags = value | 0xe0,
-            0xff10..=0xff45 => self.io[(address - 0xff00) as usize] = value,
+            0xff10..=0xff3f => self.io[(address - 0xff00) as usize] = value,
+            0xff40..=0xff45 => self.ppu.write_register(address, value),
             0xff46 => {
-                self.io[(address - 0xff00) as usize] = value;
+                self.ppu.write_register(address, value);
                 self.dma_source = (value as u16) << 8;
                 self.dma_index = 0;
                 self.dma_cycle = 0;
                 self.dma_active = true;
             }
-            0xff47..=0xff7f => self.io[(address - 0xff00) as usize] = value,
+            0xff47..=0xff4b => self.ppu.write_register(address, value),
+            0xff4c..=0xff7f => self.io[(address - 0xff00) as usize] = value,
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize] = value,
             0xffff => self.interrupt_enable = value,
         }
@@ -158,11 +178,19 @@ impl Bus {
         self.dma_cycle = 0;
 
         let source = self.dma_source.wrapping_add(self.dma_index);
-        let value = self.read_unrestricted(source);
-        self.oam[self.dma_index as usize] = value;
+        let value = self.read_dma_source(source);
+        self.ppu.write_oam_raw(0xfe00 + self.dma_index, value);
         self.dma_index += 1;
-        if self.dma_index == OAM_SIZE as u16 {
+        if self.dma_index == OAM_SIZE {
             self.dma_active = false;
+        }
+    }
+
+    fn read_dma_source(&self, address: u16) -> u8 {
+        match address {
+            0x8000..=0x9fff => self.ppu.read_vram_raw(address),
+            0xfe00..=0xfe9f => self.ppu.read_oam_raw(address),
+            _ => self.read_unrestricted(address),
         }
     }
 }
@@ -221,6 +249,7 @@ mod tests {
     #[test]
     fn maps_oam_and_rejects_unusable_region() {
         let mut bus = test_bus();
+        bus.write8(0xff40, 0x00);
 
         bus.write8(0xfe00, 0x33);
         bus.write8(0xfe9f, 0x44);
@@ -296,6 +325,7 @@ mod tests {
     #[test]
     fn dma_copies_one_hundred_sixty_bytes_in_six_hundred_forty_cycles() {
         let mut bus = test_bus();
+        bus.write8(0xff40, 0x00);
         for offset in 0..0x00a0 {
             bus.write8(0xc000 + offset, offset as u8);
         }
@@ -343,6 +373,7 @@ mod tests {
     #[test]
     fn ppu_tick_requests_vblank_and_stat_interrupts() {
         let mut bus = test_bus();
+        bus.write8(0xff0f, 0x00);
         bus.write8(0xff41, 0x10);
 
         bus.tick(456 * 144);

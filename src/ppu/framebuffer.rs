@@ -1,3 +1,77 @@
+pub const SCREEN_WIDTH: usize = 160;
+pub const SCREEN_HEIGHT: usize = 144;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Shade {
+    #[default]
+    White = 0,
+    LightGray = 1,
+    DarkGray = 2,
+    Black = 3,
+}
+
+impl Shade {
+    pub fn from_color(color: u8) -> Self {
+        match color & 0x03 {
+            0 => Self::White,
+            1 => Self::LightGray,
+            2 => Self::DarkGray,
+            3 => Self::Black,
+            _ => unreachable!("颜色值已经限制为两位"),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Framebuffer {
+    pixels: [Shade; SCREEN_WIDTH * SCREEN_HEIGHT],
+}
+
+impl Framebuffer {
+    pub fn new() -> Self {
+        Self {
+            pixels: [Shade::White; SCREEN_WIDTH * SCREEN_HEIGHT],
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        SCREEN_WIDTH
+    }
+
+    pub fn height(&self) -> usize {
+        SCREEN_HEIGHT
+    }
+
+    pub fn pixels(&self) -> &[Shade] {
+        &self.pixels
+    }
+
+    pub fn pixel(&self, x: usize, y: usize) -> Shade {
+        self.pixels
+            .get(y.saturating_mul(SCREEN_WIDTH).saturating_add(x))
+            .copied()
+            .filter(|_| x < SCREEN_WIDTH && y < SCREEN_HEIGHT)
+            .unwrap_or(Shade::White)
+    }
+
+    pub fn set_pixel(&mut self, x: usize, y: usize, shade: Shade) {
+        if x < SCREEN_WIDTH && y < SCREEN_HEIGHT {
+            self.pixels[y * SCREEN_WIDTH + x] = shade;
+        }
+    }
+
+    pub fn clear(&mut self, shade: Shade) {
+        self.pixels.fill(shade);
+    }
+}
+
+impl Default for Framebuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -48,7 +48,7 @@ impl Timer {
         }
     }
 
-    pub fn tick(&mut self, cycles: u16) -> bool {
+    pub fn tick(&mut self, cycles: u32) -> bool {
         let mut request_interrupt = false;
         for _ in 0..cycles {
             if let Some(delay) = self.reload_delay {
