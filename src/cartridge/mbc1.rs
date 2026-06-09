@@ -37,11 +37,7 @@ impl Mbc1 {
     }
 
     fn upper_rom_bank(&self) -> usize {
-        let bank = if self.ram_banking_mode {
-            self.rom_bank_low as usize
-        } else {
-            ((self.bank_high as usize) << 5) | self.rom_bank_low as usize
-        };
+        let bank = ((self.bank_high as usize) << 5) | self.rom_bank_low as usize;
         bank % self.rom_bank_count()
     }
 
@@ -174,14 +170,14 @@ mod tests {
     }
 
     #[test]
-    fn maps_upper_bits_to_fixed_region_in_ram_mode() {
+    fn applies_upper_bits_to_both_rom_regions_in_ram_mode() {
         let mut mbc = Mbc1::new(banked_rom(128), 0);
         mbc.write_rom(0x2000, 0x03);
         mbc.write_rom(0x4000, 0x02);
         mbc.write_rom(0x6000, 0x01);
 
         assert_eq!(mbc.read_rom(0x0000), 64);
-        assert_eq!(mbc.read_rom(0x4000), 3);
+        assert_eq!(mbc.read_rom(0x4000), 67);
     }
 
     #[test]

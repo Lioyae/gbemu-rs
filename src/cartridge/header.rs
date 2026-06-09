@@ -103,6 +103,8 @@ pub enum CartridgeError {
     UnsupportedRamSize(u8),
     #[error("ROM 文件长度与卡带头不符：实际 {actual} 字节，声明 {declared} 字节")]
     RomLengthMismatch { actual: usize, declared: usize },
+    #[error("卡带头配置无效：{0}")]
+    InvalidConfiguration(String),
 }
 
 fn parse_cartridge_type(code: u8) -> Result<CartridgeType, CartridgeError> {
@@ -128,7 +130,6 @@ fn parse_rom_size(code: u8) -> Result<usize, CartridgeError> {
 fn parse_ram_size(code: u8) -> Result<usize, CartridgeError> {
     match code {
         0x00 => Ok(0),
-        0x01 => Ok(2 * 1024),
         0x02 => Ok(8 * 1024),
         0x03 => Ok(32 * 1024),
         0x04 => Ok(128 * 1024),
@@ -211,13 +212,13 @@ mod tests {
 
     #[test]
     fn rejects_rom_smaller_than_header() {
-        let error = CartridgeHeader::parse(&vec![0; HEADER_END - 1])
-            .expect_err("过小 ROM 必须被拒绝");
+        const TOO_SMALL: usize = HEADER_END - 1;
+        let error = CartridgeHeader::parse(&vec![0; TOO_SMALL]).expect_err("过小 ROM 必须被拒绝");
 
         assert!(matches!(
             error,
             CartridgeError::RomTooSmall {
-                actual: HEADER_END - 1,
+                actual: TOO_SMALL,
                 minimum: HEADER_END
             }
         ));
@@ -254,17 +255,28 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unused_ram_size_code() {
+        let rom = rom_with_header("UNUSEDRAM", 0x02, 0x00, 0x01);
+
+        let error = CartridgeHeader::parse(&rom).expect_err("未使用的 RAM 容量编码必须被拒绝");
+
+        assert!(matches!(error, CartridgeError::UnsupportedRamSize(0x01)));
+    }
+
+    #[test]
     fn rejects_rom_shorter_than_declared_size() {
+        const TRUNCATED_SIZE: usize = 32 * 1024;
+        const DECLARED_SIZE: usize = 128 * 1024;
         let mut rom = rom_with_header("TRUNCATED", 0x00, 0x02, 0x00);
-        rom.truncate(32 * 1024);
+        rom.truncate(TRUNCATED_SIZE);
 
         let error = CartridgeHeader::parse(&rom).expect_err("截断 ROM 必须被拒绝");
 
         assert!(matches!(
             error,
             CartridgeError::RomLengthMismatch {
-                actual: 32 * 1024,
-                declared: 128 * 1024
+                actual: TRUNCATED_SIZE,
+                declared: DECLARED_SIZE
             }
         ));
     }

@@ -13,8 +13,8 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let rom = fs::read(&cli.rom)
-        .with_context(|| format!("无法读取 ROM 文件：{}", cli.rom.display()))?;
+    let rom =
+        fs::read(&cli.rom).with_context(|| format!("无法读取 ROM 文件：{}", cli.rom.display()))?;
     let cartridge = Cartridge::from_bytes(rom)
         .with_context(|| format!("无法加载卡带：{}", cli.rom.display()))?;
 
