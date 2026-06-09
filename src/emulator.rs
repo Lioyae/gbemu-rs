@@ -96,6 +96,10 @@ impl Emulator {
         self.bus.read_byte(address)
     }
 
+    pub fn peek_memory(&self, address: u16) -> u8 {
+        self.bus.peek_byte(address)
+    }
+
     pub fn write_memory(&mut self, address: u16, value: u8) {
         self.bus.write_byte(address, value);
     }

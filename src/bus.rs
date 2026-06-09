@@ -93,6 +93,22 @@ impl Bus {
         self.ppu.framebuffer()
     }
 
+    pub fn peek_byte(&self, address: u16) -> u8 {
+        match address {
+            0x8000..=0x9fff => self.ppu.read_vram_raw(address),
+            0xfe00..=0xfe9f => self.ppu.read_oam_raw(address),
+            _ => self.read_unrestricted(address),
+        }
+    }
+
+    pub fn lcd_mode(&self) -> u8 {
+        self.ppu.mode() as u8
+    }
+
+    pub fn ly(&self) -> u8 {
+        self.ppu.read_register(0xff44)
+    }
+
     pub fn take_frame_ready(&mut self) -> bool {
         std::mem::take(&mut self.frame_ready)
     }
