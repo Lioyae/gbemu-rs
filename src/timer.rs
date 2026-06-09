@@ -1,3 +1,104 @@
+pub struct Timer {
+    divider: u16,
+    tima: u8,
+    tma: u8,
+    tac: u8,
+    reload_delay: Option<u8>,
+}
+
+impl Timer {
+    pub fn new() -> Self {
+        Self {
+            divider: 0,
+            tima: 0,
+            tma: 0,
+            tac: 0,
+            reload_delay: None,
+        }
+    }
+
+    pub fn read(&self, address: u16) -> u8 {
+        match address {
+            0xff04 => (self.divider >> 8) as u8,
+            0xff05 => self.tima,
+            0xff06 => self.tma,
+            0xff07 => self.tac | 0xf8,
+            _ => 0xff,
+        }
+    }
+
+    pub fn write(&mut self, address: u16, value: u8) {
+        match address {
+            0xff04 => {
+                let old_signal = self.timer_signal();
+                self.divider = 0;
+                self.apply_falling_edge(old_signal);
+            }
+            0xff05 => {
+                self.tima = value;
+                self.reload_delay = None;
+            }
+            0xff06 => self.tma = value,
+            0xff07 => {
+                let old_signal = self.timer_signal();
+                self.tac = value & 0x07;
+                self.apply_falling_edge(old_signal);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn tick(&mut self, cycles: u16) -> bool {
+        let mut request_interrupt = false;
+        for _ in 0..cycles {
+            if let Some(delay) = self.reload_delay {
+                if delay == 1 {
+                    self.tima = self.tma;
+                    self.reload_delay = None;
+                    request_interrupt = true;
+                } else {
+                    self.reload_delay = Some(delay - 1);
+                }
+            }
+
+            let old_signal = self.timer_signal();
+            self.divider = self.divider.wrapping_add(1);
+            self.apply_falling_edge(old_signal);
+        }
+        request_interrupt
+    }
+
+    fn timer_signal(&self) -> bool {
+        if self.tac & 0x04 == 0 {
+            return false;
+        }
+        let bit = match self.tac & 0x03 {
+            0 => 9,
+            1 => 3,
+            2 => 5,
+            3 => 7,
+            _ => unreachable!("TAC 频率索引始终为 0..=3"),
+        };
+        self.divider & (1 << bit) != 0
+    }
+
+    fn apply_falling_edge(&mut self, old_signal: bool) {
+        if old_signal && !self.timer_signal() && self.reload_delay.is_none() {
+            let (value, overflow) = self.tima.overflowing_add(1);
+            self.tima = value;
+            if overflow {
+                self.reload_delay = Some(4);
+            }
+        }
+    }
+}
+
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

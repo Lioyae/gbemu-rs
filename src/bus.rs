@@ -1,4 +1,9 @@
-use crate::{cartridge::Cartridge, cpu::Memory};
+use crate::{
+    cartridge::Cartridge,
+    cpu::Memory,
+    joypad::{Joypad, JoypadButton},
+    timer::Timer,
+};
 
 const VRAM_SIZE: usize = 0x2000;
 const WRAM_SIZE: usize = 0x2000;
@@ -23,6 +28,8 @@ pub struct Bus {
     oam: [u8; OAM_SIZE],
     io: [u8; IO_SIZE],
     hram: [u8; HRAM_SIZE],
+    timer: Timer,
+    joypad: Joypad,
     interrupt_flags: u8,
     interrupt_enable: u8,
 }
@@ -36,6 +43,8 @@ impl Bus {
             oam: [0; OAM_SIZE],
             io: [0; IO_SIZE],
             hram: [0; HRAM_SIZE],
+            timer: Timer::new(),
+            joypad: Joypad::new(),
             interrupt_flags: 0xe1,
             interrupt_enable: 0,
         }
@@ -43,6 +52,18 @@ impl Bus {
 
     pub fn request_interrupt(&mut self, interrupt: Interrupt) {
         self.interrupt_flags |= interrupt as u8;
+    }
+
+    pub fn tick(&mut self, cycles: u16) {
+        if self.timer.tick(cycles) {
+            self.request_interrupt(Interrupt::Timer);
+        }
+    }
+
+    pub fn set_button(&mut self, button: JoypadButton, pressed: bool) {
+        if self.joypad.set_button(button, pressed) {
+            self.request_interrupt(Interrupt::Joypad);
+        }
     }
 
     pub fn read_byte(&self, address: u16) -> u8 {
@@ -54,6 +75,8 @@ impl Bus {
             0xe000..=0xfdff => self.wram[(address - 0xe000) as usize],
             0xfe00..=0xfe9f => self.oam[(address - 0xfe00) as usize],
             0xfea0..=0xfeff => 0xff,
+            0xff00 => self.joypad.read(),
+            0xff04..=0xff07 => self.timer.read(address),
             0xff0f => self.interrupt_flags,
             0xff00..=0xff7f => self.io[(address - 0xff00) as usize],
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize],
@@ -70,6 +93,12 @@ impl Bus {
             0xe000..=0xfdff => self.wram[(address - 0xe000) as usize] = value,
             0xfe00..=0xfe9f => self.oam[(address - 0xfe00) as usize] = value,
             0xfea0..=0xfeff => {}
+            0xff00 => {
+                if self.joypad.write(value) {
+                    self.request_interrupt(Interrupt::Joypad);
+                }
+            }
+            0xff04..=0xff07 => self.timer.write(address, value),
             0xff0f => self.interrupt_flags = value | 0xe0,
             0xff00..=0xff7f => self.io[(address - 0xff00) as usize] = value,
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize] = value,
