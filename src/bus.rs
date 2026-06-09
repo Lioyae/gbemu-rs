@@ -1,5 +1,5 @@
 use crate::{
-    cartridge::Cartridge,
+    cartridge::{Cartridge, CartridgeHeader},
     cpu::Memory,
     joypad::{Joypad, JoypadButton},
     ppu::{Ppu, framebuffer::Framebuffer},
@@ -91,6 +91,10 @@ impl Bus {
 
     pub fn framebuffer(&self) -> &Framebuffer {
         self.ppu.framebuffer()
+    }
+
+    pub fn cartridge_header(&self) -> &CartridgeHeader {
+        self.cartridge.header()
     }
 
     pub fn peek_byte(&self, address: u16) -> u8 {

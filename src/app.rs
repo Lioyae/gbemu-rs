@@ -1,3 +1,136 @@
+use std::time::{Duration, Instant};
+
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+
+use crate::{
+    debugger::{DebugSnapshot, Debugger},
+    emulator::{Emulator, EmulatorError},
+    joypad::JoypadButton,
+};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ViewMode {
+    #[default]
+    Game,
+    Debugger,
+}
+
+pub struct App {
+    emulator: Emulator,
+    mode: ViewMode,
+    should_quit: bool,
+    memory_start: u16,
+    fps: f64,
+    frames_since_measurement: u32,
+    measurement_started: Instant,
+}
+
+impl App {
+    pub fn new(emulator: Emulator) -> Self {
+        Self {
+            emulator,
+            mode: ViewMode::Game,
+            should_quit: false,
+            memory_start: 0xc000,
+            fps: 0.0,
+            frames_since_measurement: 0,
+            measurement_started: Instant::now(),
+        }
+    }
+
+    pub fn emulator(&self) -> &Emulator {
+        &self.emulator
+    }
+
+    pub fn emulator_mut(&mut self) -> &mut Emulator {
+        &mut self.emulator
+    }
+
+    pub fn mode(&self) -> ViewMode {
+        self.mode
+    }
+
+    pub fn should_quit(&self) -> bool {
+        self.should_quit
+    }
+
+    pub fn memory_start(&self) -> u16 {
+        self.memory_start
+    }
+
+    pub fn fps(&self) -> f64 {
+        self.fps
+    }
+
+    pub fn update(&mut self) -> Result<(), EmulatorError> {
+        let result = self.emulator.run_until_frame(80_000)?;
+        if result.frame_ready {
+            self.frames_since_measurement += 1;
+            let elapsed = self.measurement_started.elapsed();
+            if elapsed >= Duration::from_secs(1) {
+                self.fps = f64::from(self.frames_since_measurement) / elapsed.as_secs_f64();
+                self.frames_since_measurement = 0;
+                self.measurement_started = Instant::now();
+            }
+        }
+        Ok(())
+    }
+
+    pub fn handle_key(&mut self, event: KeyEvent) -> Result<(), EmulatorError> {
+        if let Some(button) = map_game_key(event.code) {
+            match event.kind {
+                KeyEventKind::Press | KeyEventKind::Repeat => {
+                    self.emulator.set_button(button, true)
+                }
+                KeyEventKind::Release => self.emulator.set_button(button, false),
+            }
+            return Ok(());
+        }
+
+        if event.kind == KeyEventKind::Release {
+            return Ok(());
+        }
+        match event.code {
+            KeyCode::Char('q' | 'Q') | KeyCode::Esc => self.should_quit = true,
+            KeyCode::Tab => {
+                self.mode = match self.mode {
+                    ViewMode::Game => ViewMode::Debugger,
+                    ViewMode::Debugger => ViewMode::Game,
+                }
+            }
+            KeyCode::Char(' ') => {
+                let paused = !self.emulator.paused();
+                self.emulator.set_paused(paused);
+            }
+            KeyCode::Char('n' | 'N') if self.emulator.paused() => {
+                self.emulator.step_instruction()?;
+            }
+            KeyCode::PageUp => self.memory_start = self.memory_start.wrapping_sub(0x0100),
+            KeyCode::PageDown => self.memory_start = self.memory_start.wrapping_add(0x0100),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub fn debug_snapshot(&self, memory_length: usize) -> DebugSnapshot {
+        Debugger::snapshot(&self.emulator, self.memory_start, memory_length, 12)
+    }
+}
+
+fn map_game_key(code: KeyCode) -> Option<JoypadButton> {
+    match code {
+        KeyCode::Right => Some(JoypadButton::Right),
+        KeyCode::Left => Some(JoypadButton::Left),
+        KeyCode::Up => Some(JoypadButton::Up),
+        KeyCode::Down => Some(JoypadButton::Down),
+        KeyCode::Char('x' | 'X') => Some(JoypadButton::A),
+        KeyCode::Char('z' | 'Z') => Some(JoypadButton::B),
+        KeyCode::Backspace => Some(JoypadButton::Select),
+        KeyCode::Enter => Some(JoypadButton::Start),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};

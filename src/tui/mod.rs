@@ -1,6 +1,115 @@
 pub mod debug_view;
 pub mod game_view;
 
+use std::{
+    io::{self, Stdout},
+    time::{Duration, Instant},
+};
+
+use anyhow::{Context, Result};
+use crossterm::{
+    cursor::{Hide, Show},
+    event::{self, Event},
+    execute,
+    terminal::{
+        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    },
+};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use thiserror::Error;
+
+use crate::{
+    app::{App, ViewMode},
+    emulator::Emulator,
+};
+
+const FRAME_DURATION: Duration = Duration::from_nanos(16_742_706);
+
+#[derive(Debug, Error)]
+pub enum TuiError {
+    #[error(
+        "终端尺寸不足：当前 {actual_width}×{actual_height}，{mode}模式至少需要 {required_width}×{required_height}"
+    )]
+    TerminalTooSmall {
+        actual_width: u16,
+        actual_height: u16,
+        required_width: u16,
+        required_height: u16,
+        mode: &'static str,
+    },
+}
+
+pub fn run(emulator: Emulator) -> Result<()> {
+    let _guard = TerminalGuard::enter().context("无法初始化终端")?;
+    let backend = CrosstermBackend::new(io::stdout());
+    let mut terminal = Terminal::new(backend).context("无法创建终端绘制后端")?;
+    terminal.clear().context("无法清空终端")?;
+    let mut app = App::new(emulator);
+
+    while !app.should_quit() {
+        let frame_started = Instant::now();
+        if !app.emulator().paused() {
+            app.update().context("模拟器运行失败")?;
+        }
+
+        let size = terminal.size().context("无法读取终端尺寸")?;
+        validate_size(size.width, size.height, app.mode())?;
+        terminal
+            .draw(|frame| match app.mode() {
+                ViewMode::Game => game_view::render(frame, &app),
+                ViewMode::Debugger => debug_view::render(frame, &app),
+            })
+            .context("终端绘制失败")?;
+
+        let wait = FRAME_DURATION.saturating_sub(frame_started.elapsed());
+        if event::poll(wait).context("终端事件轮询失败")?
+            && let Event::Key(key) = event::read().context("无法读取终端事件")?
+        {
+            app.handle_key(key).context("无法处理终端按键")?;
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_size(width: u16, height: u16, mode: ViewMode) -> Result<(), TuiError> {
+    let (required_width, required_height, mode_name) = match mode {
+        ViewMode::Game => (162, 76, "游戏"),
+        ViewMode::Debugger => (120, 36, "调试"),
+    };
+    if width < required_width || height < required_height {
+        return Err(TuiError::TerminalTooSmall {
+            actual_width: width,
+            actual_height: height,
+            required_width,
+            required_height,
+            mode: mode_name,
+        });
+    }
+    Ok(())
+}
+
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn enter() -> io::Result<Self> {
+        enable_raw_mode()?;
+        if let Err(error) = execute!(io::stdout(), EnterAlternateScreen, Hide) {
+            let _ = disable_raw_mode();
+            return Err(error);
+        }
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), Show, LeaveAlternateScreen);
+    }
+}
+
+pub type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2,7 +2,7 @@ use thiserror::Error;
 
 use crate::{
     bus::Bus,
-    cartridge::{Cartridge, CartridgeError},
+    cartridge::{Cartridge, CartridgeError, CartridgeHeader},
     cpu::{Cpu, instruction::CpuError},
     joypad::JoypadButton,
     ppu::framebuffer::Framebuffer,
@@ -45,6 +45,10 @@ impl Emulator {
 
     pub fn bus(&self) -> &Bus {
         &self.bus
+    }
+
+    pub fn cartridge_header(&self) -> &CartridgeHeader {
+        self.bus.cartridge_header()
     }
 
     pub fn paused(&self) -> bool {
