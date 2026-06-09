@@ -232,4 +232,38 @@ mod tests {
         assert_eq!(bus.read8(0xff00) & 0x0f, 0x0e);
         assert_ne!(bus.read8(0xff0f) & Interrupt::Joypad as u8, 0);
     }
+
+    #[test]
+    fn dma_copies_one_hundred_sixty_bytes_in_six_hundred_forty_cycles() {
+        let mut bus = test_bus();
+        for offset in 0..0x00a0 {
+            bus.write8(0xc000 + offset, offset as u8);
+        }
+
+        bus.write8(0xff46, 0xc0);
+        assert!(bus.dma_active());
+        bus.tick(639);
+        assert!(bus.dma_active());
+        bus.tick(1);
+        assert!(!bus.dma_active());
+
+        for offset in 0..0x00a0 {
+            assert_eq!(bus.read8(0xfe00 + offset), offset as u8);
+        }
+    }
+
+    #[test]
+    fn dma_blocks_cpu_bus_except_high_ram() {
+        let mut bus = test_bus();
+        bus.write8(0xc000, 0x11);
+        bus.write8(0xff46, 0xc0);
+
+        assert_eq!(bus.read8(0xc000), 0xff);
+        bus.write8(0xc000, 0x22);
+        bus.write8(0xff80, 0x33);
+        assert_eq!(bus.read8(0xff80), 0x33);
+
+        bus.tick(640);
+        assert_eq!(bus.read8(0xc000), 0x11);
+    }
 }
