@@ -75,12 +75,12 @@ ratatui = "0.29"
 thiserror = "2"
 ```
 
-- [ ] **步骤 2：建立库入口和命令行参数**
+- [x] **步骤 2：建立库入口和命令行参数**
 
 `src/lib.rs` 导出 `cartridge`，`src/main.rs` 使用 `clap::Parser` 接收一个必需的
 `rom: PathBuf` 参数。此任务只验证参数和文件读取，不进入终端原始模式。
 
-- [ ] **步骤 3：提交基础工程**
+- [x] **步骤 3：提交基础工程**
 
 ```bash
 git add .gitignore Cargo.toml Cargo.lock src/lib.rs src/main.rs
@@ -106,7 +106,7 @@ assert_eq!(header.ram_size(), 0);
 
 同时覆盖 ROM 过小、未知卡带类型、不支持的 ROM 容量编码和不支持的 RAM 容量编码。
 
-- [ ] **步骤 2：提交失败测试**
+- [x] **步骤 2：提交失败测试**
 
 ```bash
 git add src/cartridge/mod.rs src/cartridge/header.rs
@@ -140,12 +140,12 @@ pub struct CartridgeHeader {
 实现 `CartridgeHeader::parse(&[u8]) -> Result<Self, CartridgeError>`，解析标题
 `0x0134..=0x0143`、类型 `0x0147`、ROM 容量 `0x0148` 和 RAM 容量 `0x0149`。
 
-- [ ] **步骤 2：实现中文错误**
+- [x] **步骤 2：实现中文错误**
 
 错误类型明确区分 ROM 太小、不支持的卡带类型、不支持的 ROM 容量编码、
 不支持的 RAM 容量编码和实际 ROM 长度小于声明长度。
 
-- [ ] **步骤 3：提交实现**
+- [x] **步骤 3：提交实现**
 
 ```bash
 git add src/cartridge/mod.rs src/cartridge/header.rs
@@ -163,7 +163,7 @@ git commit -m "feat: 实现卡带头解析"
 覆盖固定 ROM 读取、越界地址返回 `0xff`、ROM 写入不改变内容，以及无 RAM 时外部
 RAM 区域返回 `0xff`。
 
-- [ ] **步骤 2：编写 MBC1 测试**
+- [x] **步骤 2：编写 MBC1 测试**
 
 使用每个存储体填充不同字节值的合成 ROM，覆盖：
 
@@ -204,17 +204,17 @@ pub trait MemoryBankController {
 `Cartridge::from_bytes(Vec<u8>)` 根据卡带头创建 ROM-only 或 MBC1 实例，并暴露
 `header()`、`read_rom()`、`write_rom()`、`read_ram()` 和 `write_ram()`。
 
-- [ ] **步骤 2：实现 MBC1 映射**
+- [x] **步骤 2：实现 MBC1 映射**
 
 所有 ROM/RAM 索引在访问前校验；未启用 RAM、无 RAM 或超出声明范围时读取 `0xff`，
 写入被忽略。实际存储体数量用于规范化存储体编号。
 
-- [ ] **步骤 3：让入口加载卡带**
+- [x] **步骤 3：让入口加载卡带**
 
 命令行读取 ROM 后调用 `Cartridge::from_bytes`，成功时打印中文卡带摘要，
 失败时通过 `anyhow::Context` 输出路径上下文。
 
-- [ ] **步骤 4：提交实现**
+- [x] **步骤 4：提交实现**
 
 ```bash
 git add src/cartridge src/main.rs
@@ -241,7 +241,7 @@ git diff 9883e30..HEAD
 
 重点检查卡带头边界、MBC1 禁止存储体重映射、容量校验、错误信息和未检查索引。
 
-- [ ] **步骤 2：执行唯一一次全量验证**
+- [x] **步骤 2：执行唯一一次全量验证**
 
 ```bash
 cargo fmt --check
@@ -252,7 +252,7 @@ cargo build --release
 
 预期：四条命令均以状态码 0 结束，卡带单元测试全部通过。
 
-- [ ] **步骤 3：修复并提交审查问题**
+- [x] **步骤 3：修复并提交审查问题**
 
 ```bash
 git add -u
