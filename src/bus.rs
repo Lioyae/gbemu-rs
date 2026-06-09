@@ -105,9 +105,11 @@ impl Bus {
             0xfe00..=0xfe9f => self.oam[(address - 0xfe00) as usize],
             0xfea0..=0xfeff => 0xff,
             0xff00 => self.joypad.read(),
+            0xff01..=0xff03 => self.io[(address - 0xff00) as usize],
             0xff04..=0xff07 => self.timer.read(address),
+            0xff08..=0xff0e => self.io[(address - 0xff00) as usize],
             0xff0f => self.interrupt_flags,
-            0xff00..=0xff7f => self.io[(address - 0xff00) as usize],
+            0xff10..=0xff7f => self.io[(address - 0xff00) as usize],
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize],
             0xffff => self.interrupt_enable,
         }
@@ -127,8 +129,11 @@ impl Bus {
                     self.request_interrupt(Interrupt::Joypad);
                 }
             }
+            0xff01..=0xff03 => self.io[(address - 0xff00) as usize] = value,
             0xff04..=0xff07 => self.timer.write(address, value),
+            0xff08..=0xff0e => self.io[(address - 0xff00) as usize] = value,
             0xff0f => self.interrupt_flags = value | 0xe0,
+            0xff10..=0xff45 => self.io[(address - 0xff00) as usize] = value,
             0xff46 => {
                 self.io[(address - 0xff00) as usize] = value;
                 self.dma_source = (value as u16) << 8;
@@ -136,7 +141,7 @@ impl Bus {
                 self.dma_cycle = 0;
                 self.dma_active = true;
             }
-            0xff00..=0xff7f => self.io[(address - 0xff00) as usize] = value,
+            0xff47..=0xff7f => self.io[(address - 0xff00) as usize] = value,
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize] = value,
             0xffff => self.interrupt_enable = value,
         }
