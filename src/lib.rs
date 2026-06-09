@@ -3,6 +3,7 @@
 pub mod bus;
 pub mod cartridge;
 pub mod cpu;
+pub mod debugger;
 pub mod emulator;
 pub mod joypad;
 pub mod ppu;
