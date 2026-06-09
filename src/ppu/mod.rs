@@ -389,4 +389,112 @@ mod tests {
         assert!(events.stat_interrupt);
         assert!(!ppu.tick(1).stat_interrupt);
     }
+
+    fn set_tile_row(ppu: &mut Ppu, tile_address: u16, row: u8, low: u8, high: u8) {
+        let address = tile_address + u16::from(row) * 2;
+        ppu.vram[(address - 0x8000) as usize] = low;
+        ppu.vram[(address - 0x8000 + 1) as usize] = high;
+    }
+
+    #[test]
+    fn renders_background_with_unsigned_tiles_scroll_and_palette() {
+        let mut ppu = Ppu::post_boot();
+        ppu.write_register(0xff47, 0xe4);
+        ppu.write_register(0xff43, 7);
+        ppu.vram[(0x9800 - 0x8000) as usize] = 0;
+        ppu.vram[(0x9801 - 0x8000) as usize] = 1;
+        set_tile_row(&mut ppu, 0x8000, 0, 0x01, 0x00);
+        set_tile_row(&mut ppu, 0x8010, 0, 0x80, 0x80);
+
+        ppu.tick(252);
+
+        assert_eq!(ppu.framebuffer().pixel(0, 0), Shade::LightGray);
+        assert_eq!(ppu.framebuffer().pixel(1, 0), Shade::Black);
+    }
+
+    #[test]
+    fn renders_background_with_signed_tile_addressing() {
+        let mut ppu = Ppu::post_boot();
+        ppu.write_register(0xff40, 0x81);
+        ppu.write_register(0xff47, 0xe4);
+        ppu.vram[(0x9800 - 0x8000) as usize] = 0xff;
+        set_tile_row(&mut ppu, 0x8ff0, 0, 0x80, 0x00);
+
+        ppu.tick(252);
+
+        assert_eq!(ppu.framebuffer().pixel(0, 0), Shade::LightGray);
+    }
+
+    #[test]
+    fn window_replaces_background_from_wx_minus_seven() {
+        let mut ppu = Ppu::post_boot();
+        ppu.write_register(0xff40, 0xf1);
+        ppu.write_register(0xff47, 0xe4);
+        ppu.write_register(0xff4a, 0);
+        ppu.write_register(0xff4b, 10);
+        ppu.vram[(0x9800 - 0x8000) as usize] = 0;
+        ppu.vram[(0x9c00 - 0x8000) as usize] = 1;
+        set_tile_row(&mut ppu, 0x8000, 0, 0x00, 0x00);
+        set_tile_row(&mut ppu, 0x8010, 0, 0xff, 0x00);
+
+        ppu.tick(252);
+
+        assert_eq!(ppu.framebuffer().pixel(2, 0), Shade::White);
+        assert_eq!(ppu.framebuffer().pixel(3, 0), Shade::LightGray);
+    }
+
+    #[test]
+    fn sprite_uses_transparency_flip_palette_and_background_priority() {
+        let mut ppu = Ppu::post_boot();
+        ppu.write_register(0xff40, 0x93);
+        ppu.write_register(0xff47, 0xe4);
+        ppu.write_register(0xff48, 0xe4);
+        ppu.write_register(0xff49, 0x1b);
+        ppu.vram[(0x9800 - 0x8000) as usize] = 0;
+        set_tile_row(&mut ppu, 0x8000, 0, 0x40, 0x00);
+        set_tile_row(&mut ppu, 0x8010, 7, 0x03, 0x00);
+
+        ppu.oam[0..4].copy_from_slice(&[16, 8, 1, 0xf0]);
+        ppu.tick(252);
+
+        assert_eq!(ppu.framebuffer().pixel(0, 0), Shade::DarkGray);
+        assert_eq!(ppu.framebuffer().pixel(1, 0), Shade::LightGray);
+    }
+
+    #[test]
+    fn lower_x_sprite_has_priority_and_only_first_ten_are_selected() {
+        let mut ppu = Ppu::post_boot();
+        ppu.write_register(0xff40, 0x93);
+        ppu.write_register(0xff47, 0xe4);
+        ppu.write_register(0xff48, 0xe4);
+        set_tile_row(&mut ppu, 0x8010, 0, 0xff, 0x00);
+        set_tile_row(&mut ppu, 0x8020, 0, 0xff, 0xff);
+
+        ppu.oam[0..4].copy_from_slice(&[16, 10, 2, 0]);
+        ppu.oam[4..8].copy_from_slice(&[16, 9, 1, 0]);
+        for index in 2..10 {
+            let start = index * 4;
+            ppu.oam[start..start + 4].copy_from_slice(&[16, 160, 1, 0]);
+        }
+        ppu.oam[40..44].copy_from_slice(&[16, 8, 2, 0]);
+
+        ppu.tick(252);
+
+        assert_eq!(ppu.framebuffer().pixel(2, 0), Shade::LightGray);
+        assert_eq!(ppu.framebuffer().pixel(0, 0), Shade::White);
+    }
+
+    #[test]
+    fn eight_by_sixteen_sprite_ignores_tile_low_bit() {
+        let mut ppu = Ppu::post_boot();
+        ppu.write_register(0xff40, 0x97);
+        ppu.write_register(0xff48, 0xe4);
+        set_tile_row(&mut ppu, 0x8020, 0, 0x80, 0x00);
+        set_tile_row(&mut ppu, 0x8030, 0, 0x00, 0x80);
+        ppu.oam[0..4].copy_from_slice(&[16, 8, 3, 0]);
+
+        ppu.tick(252);
+
+        assert_eq!(ppu.framebuffer().pixel(0, 0), Shade::LightGray);
+    }
 }
