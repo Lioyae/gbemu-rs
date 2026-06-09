@@ -147,6 +147,7 @@ impl Bus {
             0xff0f => self.interrupt_flags,
             0xff10..=0xff3f => self.io[(address - 0xff00) as usize],
             0xff40..=0xff4b => self.ppu.read_register(address),
+            0xff4d => 0xff,
             0xff4c..=0xff7f => self.io[(address - 0xff00) as usize],
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize],
             0xffff => self.interrupt_enable,
@@ -181,6 +182,7 @@ impl Bus {
                 self.dma_active = true;
             }
             0xff47..=0xff4b => self.ppu.write_register(address, value),
+            0xff4d => {}
             0xff4c..=0xff7f => self.io[(address - 0xff00) as usize] = value,
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize] = value,
             0xffff => self.interrupt_enable = value,
@@ -294,6 +296,15 @@ mod tests {
         assert_eq!(bus.read8(0xff80), 0x88);
         assert_eq!(bus.read8(0xfffe), 0x99);
         assert_eq!(bus.read8(0xffff), 0x1f);
+    }
+
+    #[test]
+    fn dmg_rejects_cgb_speed_switch_register() {
+        let mut bus = test_bus();
+
+        assert_eq!(bus.read8(0xff4d), 0xff);
+        bus.write8(0xff4d, 0x01);
+        assert_eq!(bus.read8(0xff4d), 0xff);
     }
 
     #[test]

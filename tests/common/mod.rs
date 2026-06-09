@@ -14,6 +14,8 @@ pub struct RomTestResult {
     pub status: RomTestStatus,
     pub serial_output: String,
     pub cycles: u64,
+    pub cpu_state: String,
+    pub result_memory: Vec<u8>,
 }
 
 pub fn run_rom_bytes(rom: Vec<u8>, cycle_limit: u64) -> Result<RomTestResult, EmulatorError> {
@@ -29,26 +31,14 @@ pub fn run_rom_bytes(rom: Vec<u8>, cycle_limit: u64) -> Result<RomTestResult, Em
         }
 
         if output.contains("Passed") {
-            return Ok(RomTestResult {
-                status: RomTestStatus::Passed,
-                serial_output: output,
-                cycles,
-            });
+            return Ok(result(&emulator, RomTestStatus::Passed, output, cycles));
         }
-        if output.contains("Failed") {
-            return Ok(RomTestResult {
-                status: RomTestStatus::Failed,
-                serial_output: output,
-                cycles,
-            });
+        if output.contains("Failed") || output.contains("FAILED") {
+            return Ok(result(&emulator, RomTestStatus::Failed, output, cycles));
         }
     }
 
-    Ok(RomTestResult {
-        status: RomTestStatus::TimedOut,
-        serial_output: output,
-        cycles,
-    })
+    Ok(result(&emulator, RomTestStatus::TimedOut, output, cycles))
 }
 
 pub fn run_rom_file(
@@ -63,4 +53,32 @@ pub fn run_rom_file(
         )
     })?;
     Ok(run_rom_bytes(rom, cycle_limit)?)
+}
+
+fn result(
+    emulator: &Emulator,
+    status: RomTestStatus,
+    serial_output: String,
+    cycles: u64,
+) -> RomTestResult {
+    let registers = emulator.cpu().registers();
+    RomTestResult {
+        status,
+        serial_output,
+        cycles,
+        cpu_state: format!(
+            "PC={:04X} SP={:04X} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IME={} HALT={}",
+            registers.pc,
+            registers.sp,
+            registers.af(),
+            registers.bc(),
+            registers.de(),
+            registers.hl(),
+            emulator.cpu().ime(),
+            emulator.cpu().halted(),
+        ),
+        result_memory: (0xa000..0xa010)
+            .map(|address| emulator.peek_memory(address))
+            .collect(),
+    }
 }

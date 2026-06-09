@@ -3,8 +3,8 @@
 `gbmeu` 是一个使用 Rust 编写、运行于终端中的 Nintendo Game Boy DMG 模拟器。
 界面基于 Ratatui 和 Crossterm，提供游戏画面与基础调试器两种模式。
 
-项目当前处于开发阶段。核心模块已有自动化测试，但尚未使用外部公开测试 ROM 和实际游戏
-完成兼容性验收。
+项目当前处于开发阶段。核心模块已有自动化测试，并已接入 Blargg CPU 指令测试、
+内存时序测试、dmg-acid2 冒烟测试和 MBC1 游戏冒烟测试。
 
 ## 当前功能
 
@@ -108,22 +108,26 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
 ```
 
-外部测试 ROM 不会提交到仓库。可按以下结构放置：
+外部测试 ROM 不会提交到仓库。当前集成测试从 `roms/` 读取文件。
 
-```text
-test-roms/
-  blargg/
-    cpu_instrs.gb
-    instr_timing.gb
-```
-
-放置后手动运行被忽略的测试：
+放置后可分别运行 CPU、内存时序和画面冒烟测试：
 
 ```powershell
-cargo test --test rom_tests -- --ignored --nocapture
+cargo test --test rom_tests provided_cpu_instrs -- --ignored --nocapture --exact
+cargo test --test rom_tests provided_mem_timing -- --ignored --nocapture --exact
+cargo test --test rom_tests provided_dmg_acid2_smoke -- --ignored --nocapture --exact
+cargo test --test rom_tests provided_mbc1_game_smoke -- --ignored --nocapture --exact
 ```
 
-未提供文件时，这些测试保持 `ignored`，不会被计为通过。
+11 个独立 CPU 指令 ROM 可分组运行：
+
+```powershell
+cargo test --test rom_tests provided_0 -- --ignored --nocapture
+cargo test --test rom_tests provided_1 -- --ignored --nocapture
+```
+
+`mem_timing` 当前会以非零状态退出，这是用于跟踪总线时序缺口的预期结果。未显式运行时，
+这些外部 ROM 测试保持 `ignored`，不会影响默认测试。
 
 ## 项目结构
 
@@ -145,10 +149,12 @@ src/
 
 ## 已知限制
 
-- 尚未通过 Blargg、Mooneye 等完整外部测试套件。
-- 尚未记录 ROM-only 和 MBC1 实际游戏的人工可玩验证结果。
+- Blargg `cpu_instrs.gb` 及 11 个独立 CPU 指令 ROM 已通过。
+- Blargg `mem_timing.gb` 尚未通过；当前 CPU 在整条指令执行后统一推进硬件周期，
+  还不能表达每个机器周期上的总线读写时序。
+- `dmg-acid2.gb` 和 MBC1 游戏 `zg.gb` 已通过无界面运行冒烟测试，但仍需人工确认画面和可玩性。
 - PPU 时序为扫描线级近似，依赖精确像素 FIFO 行为的程序可能显示异常。
-- STOP、DMA 总线争用、定时器边界和部分中断时序仍可能需要测试 ROM 校正。
+- STOP、DMA 总线争用、定时器边界和部分中断时序仍可能需要更多测试 ROM 校正。
 - 不产生声音。
 - MBC1 电池存档不会写入磁盘。
 
