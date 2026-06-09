@@ -1,46 +1,49 @@
-# Rust DMG + MBC1 Emulator Design
+# Rust DMG + MBC1 模拟器设计
 
-## Goal
+## 目标
 
-Build a terminal-based Nintendo Game Boy DMG emulator in Rust. The first usable
-release supports ROM-only and MBC1 cartridges, runs without a DMG Boot ROM,
-offers game and basic debugger views through a TUI, and intentionally omits
-audio output.
+使用 Rust 构建一个运行于终端的 Nintendo Game Boy DMG 模拟器。首个可用版本支持
+ROM-only 与 MBC1 卡带，无需 DMG Boot ROM，通过 TUI 提供游戏与基础调试界面，
+暂不实现音频输出。
 
-## Scope
+## 语言规范
 
-The first release includes:
+- README、设计文档、实施计划和其他项目文档统一使用中文。
+- 代码中确有必要的解释性注释统一使用中文。
+- 用户可见的错误信息和 TUI 提示默认使用中文。
+- Rust 标识符、文件名、命令、寄存器名、协议名和第三方库名保留英文。
+- 只在代码无法清晰表达意图时添加注释，避免对显而易见的代码逐行说明。
 
-- LR35902 CPU instructions, flags, interrupts, HALT behavior, and cycle timing.
-- DMG memory map and memory-mapped I/O.
-- ROM-only and MBC1 cartridge controllers.
-- DMG timer and interrupt behavior.
-- DMG PPU background, window, sprites, palettes, LCD modes, and frame timing.
-- Joypad input and Joypad interrupts.
-- A `160 x 144` four-shade framebuffer.
-- Game and debugger TUI modes.
-- Pause, resume, instruction stepping, CPU state, current disassembly, and
-  memory inspection.
-- Automated unit and integration tests, public test ROM execution, and at
-  least one manually verified MBC1 game.
-- A user-facing README with setup, controls, compatibility, limitations, and
-  validation instructions.
+## 功能范围
 
-The first release excludes:
+首个版本包含：
 
-- Game Boy Color features.
-- Sound generation and host audio output.
-- Save states, rewind, cheats, link cable, and network features.
-- Breakpoints, watchpoints, execution history, and call tracing.
-- Bundled copyrighted ROMs or Boot ROM images.
+- LR35902 CPU 指令、标志位、中断、HALT 行为与周期计时。
+- DMG 内存映射与内存映射 I/O。
+- ROM-only 与 MBC1 卡带控制器。
+- DMG 定时器与中断行为。
+- DMG PPU 背景、窗口、精灵、调色板、LCD 模式与帧时序。
+- Joypad 输入与 Joypad 中断。
+- `160 x 144`、四级灰度的帧缓冲区。
+- 游戏模式与调试模式两种 TUI 界面。
+- 暂停、继续、单指令步进、CPU 状态、当前反汇编与内存查看。
+- 单元测试、集成测试、公开测试 ROM 验证，以及至少一款 MBC1 游戏的人工验证。
+- 包含安装、控制方式、兼容性、限制和验证方法的中文 README。
 
-APU register addresses remain mapped with minimal compatibility behavior so
-games can access them without crashing, but they do not generate sound.
+首个版本不包含：
 
-## Architecture
+- Game Boy Color 功能。
+- 声音生成与主机音频输出。
+- 存档状态、倒带、作弊、联机线与网络功能。
+- 断点、监视点、执行历史与调用追踪。
+- 任何受版权保护的游戏 ROM 或 Boot ROM。
 
-Use one Rust crate with focused modules. Emulator hardware remains independent
-from terminal rendering, allowing deterministic tests without a terminal.
+APU 寄存器地址提供最低限度的兼容行为，使游戏访问这些地址时不会崩溃，但不产生声音。
+
+## 架构
+
+项目使用单个 Rust crate，并按职责拆分模块。模拟器硬件核心与终端渲染相互独立，
+从而可以在不启动终端的情况下执行确定性测试。
 
 ```text
 src/
@@ -72,202 +75,176 @@ tests/
   rom_tests.rs
 ```
 
-Responsibilities:
+各模块职责如下：
 
-- `cartridge`: load ROM bytes, validate the header, expose cartridge metadata,
-  and route reads and writes through ROM-only or MBC1 banking behavior.
-- `cpu`: own LR35902 registers, decode and execute one instruction at a time,
-  update flags, and report consumed machine cycles.
-- `bus`: implement the DMG address map and connect CPU accesses to cartridge,
-  PPU, timer, Joypad, work RAM, high RAM, interrupt registers, and APU stubs.
-- `timer`: implement DIV, TIMA, TMA, TAC, overflow, and timer interrupt requests.
-- `ppu`: advance LCD modes from elapsed cycles, expose VRAM and OAM, enforce
-  mapped registers, and render complete DMG frames.
-- `joypad`: translate host key state into the P1 register and request Joypad
-  interrupts on valid button transitions.
-- `emulator`: initialize post-Boot-ROM state, coordinate CPU and hardware
-  clocks, expose frame execution, pause/resume, and single-instruction stepping.
-- `debugger`: produce immutable snapshots and disassembly without owning or
-  mutating emulation state.
-- `tui`: own terminal setup, input polling, layout, rendering, mode switching,
-  and terminal restoration.
-- `app`: coordinate ROM loading, emulator lifetime, TUI events, and shutdown.
+- `cartridge`：加载 ROM 字节、校验卡带头、暴露卡带元数据，并根据 ROM-only 或
+  MBC1 规则处理读写与存储体切换。
+- `cpu`：保存 LR35902 寄存器，逐条解码并执行指令，更新标志位并返回消耗的周期数。
+- `bus`：实现 DMG 地址空间，连接卡带、PPU、定时器、Joypad、工作 RAM、高位 RAM、
+  中断寄存器和 APU 占位寄存器。
+- `timer`：实现 DIV、TIMA、TMA、TAC、溢出重载和定时器中断请求。
+- `ppu`：根据周期推进 LCD 模式，提供 VRAM 与 OAM 访问，实现映射寄存器并渲染完整帧。
+- `joypad`：将主机按键状态转换为 P1 寄存器值，并在有效按键变化时请求 Joypad 中断。
+- `emulator`：初始化 Boot ROM 执行后的状态，协调 CPU 与其他硬件时钟，并提供逐帧运行、
+  暂停、继续和单指令步进能力。
+- `debugger`：生成不可变调试快照和反汇编结果，不拥有或修改模拟器状态。
+- `tui`：负责终端初始化、事件轮询、布局、绘制、模式切换与终端恢复。
+- `app`：协调 ROM 加载、模拟器生命周期、TUI 事件和退出流程。
 
-## Execution Model
+## 执行模型
 
-The CPU executes one instruction and returns its cycle count. The emulator
-passes those cycles to the timer and PPU, then services interrupts according to
-DMG priority. This cycle-driven boundary keeps hardware timing independent of
-host rendering speed.
+CPU 每次执行一条指令并返回所消耗的周期数。模拟器将这些周期传递给定时器和 PPU，
+随后按照 DMG 中断优先级处理中断。以周期为边界可使硬件时序独立于主机绘制速度。
 
-Game mode repeatedly runs enough emulated cycles to produce a frame, renders
-the latest framebuffer, and uses host timing to target approximately 59.7
-frames per second. Debug mode may pause execution, step exactly one CPU
-instruction, and refresh a read-only snapshot after each action.
+游戏模式持续运行足以生成一帧的模拟周期，绘制最新帧缓冲区，并通过主机计时将速度控制在
+约 59.7 FPS。调试模式可以暂停执行、精确步进一条 CPU 指令，并在每次操作后刷新只读快照。
 
-The TUI converts each pair of vertical DMG pixels into one terminal cell where
-possible. Foreground and background grayscale colors preserve both pixels,
-reducing the required display height while retaining the full framebuffer.
-When terminal color support is insufficient, a four-character grayscale
-fallback is used.
+在终端能力允许时，TUI 使用一个终端单元格表示垂直方向上的两个 DMG 像素，并通过前景色
+和背景色保留两个像素的灰度，从而降低所需终端高度。终端颜色能力不足时，回退到四种灰度字符。
 
-## Cartridge And Startup Behavior
+## 卡带与启动行为
 
-The application accepts a ROM path from the command line. Header cartridge type
-values select either ROM-only or MBC1 behavior. Unsupported cartridge types
-produce a clear error before the terminal enters raw mode.
+程序从命令行接收 ROM 路径。根据卡带头中的类型字段选择 ROM-only 或 MBC1。
+遇到不支持的卡带类型时，在终端进入原始模式之前返回明确的中文错误。
 
-MBC1 implements:
+MBC1 实现：
 
-- RAM enable.
-- Lower five ROM bank bits, including the forbidden-bank remap.
-- Upper bank bits.
-- ROM banking mode.
-- RAM banking mode.
-- Optional external RAM based on header size.
+- RAM 启用。
+- ROM 存储体编号低五位，并处理禁止选择的存储体编号。
+- 存储体编号高位。
+- ROM 存储体模式。
+- RAM 存储体模式。
+- 根据卡带头声明容量提供可选外部 RAM。
 
-The emulator does not load a Boot ROM. It initializes CPU registers and mapped
-hardware registers to documented post-DMG-Boot-ROM values, starts execution at
-`0x0100`, and leaves `0x0000..=0x00ff` mapped to cartridge ROM.
+模拟器不加载 Boot ROM。CPU 与映射硬件寄存器直接初始化为 DMG Boot ROM 执行结束后的
+状态，从 `0x0100` 开始执行，并始终将 `0x0000..=0x00ff` 映射到卡带 ROM。
 
-## TUI And Controls
+## TUI 与控制方式
 
-Game mode displays:
+游戏模式显示：
 
-- The scaled Game Boy framebuffer.
-- ROM title and cartridge type.
-- Running or paused state.
-- Measured FPS.
-- A compact control reminder.
+- 缩放后的 Game Boy 帧缓冲区。
+- ROM 标题与卡带类型。
+- 运行或暂停状态。
+- 实测 FPS。
+- 简短按键提示。
 
-Debugger mode displays:
+调试模式显示：
 
-- CPU registers and flags.
-- Interrupt state and current LCD mode.
-- Current instruction plus nearby disassembly.
-- A scrollable memory window.
-- Run, pause, and single-step status.
+- CPU 寄存器与标志位。
+- 中断状态与当前 LCD 模式。
+- 当前指令及其附近的反汇编。
+- 可滚动的内存窗口。
+- 运行、暂停和单步状态。
 
-Default controls:
+默认控制方式：
 
-| Host key | Action |
+| 主机按键 | 功能 |
 | --- | --- |
-| Arrow keys | D-pad |
+| 方向键 | 十字键 |
 | `Z` | B |
 | `X` | A |
 | `Enter` | Start |
 | `Backspace` | Select |
-| `Tab` | Switch game/debugger mode |
-| `Space` | Pause/resume |
-| `N` | Step one instruction while paused |
-| `PageUp` / `PageDown` | Move debugger memory window |
-| `Q` or `Esc` | Quit |
+| `Tab` | 切换游戏/调试模式 |
+| `Space` | 暂停/继续 |
+| `N` | 暂停时执行一条指令 |
+| `PageUp` / `PageDown` | 移动调试器内存窗口 |
+| `Q` 或 `Esc` | 退出 |
 
-Control mapping is documented but not configurable in the first release.
+首个版本会记录这些按键映射，但不提供自定义配置。
 
-## Error Handling
+## 错误处理
 
-Library-facing modules return typed errors for ROM loading and cartridge header
-validation. The binary adds context for file paths and user actions before
-printing errors.
+面向库的模块为 ROM 加载和卡带头校验返回类型化错误。二进制入口在打印错误前补充文件路径
+和用户操作上下文。
 
-Expected user errors include:
+预期用户错误包括：
 
-- Missing or unreadable ROM files.
-- ROM files too small to contain a valid header.
-- Unsupported cartridge controller or declared ROM/RAM size.
-- Terminal too small for either view.
-- Terminal initialization or event polling failure.
+- ROM 文件不存在或无法读取。
+- ROM 文件过小，无法包含有效卡带头。
+- 卡带控制器或声明的 ROM/RAM 容量不受支持。
+- 终端尺寸不足以显示当前界面。
+- 终端初始化或事件轮询失败。
 
-The terminal restoration guard is created immediately after entering raw mode
-and restores the screen and cursor on normal exit or propagated errors. Runtime
-hardware invariants use debug assertions where practical; malformed games must
-not cause unchecked indexing or memory safety failures.
+进入原始模式后立即创建终端恢复保护对象，确保正常退出或错误传播时恢复屏幕与光标。
+硬件内部不变量在适当位置使用调试断言；异常游戏数据不得导致越界访问或内存安全问题。
 
-## Testing Strategy
+## 测试策略
 
-Unit tests cover deterministic hardware behavior:
+单元测试覆盖可确定验证的硬件行为：
 
-- CPU instruction results, flags, program counter changes, stack behavior, and
-  cycle counts.
-- Bus address routing, echo RAM, prohibited ranges, DMA, and interrupt flags.
-- Timer frequencies, DIV reset, overflow, reload, and interrupt requests.
-- MBC1 ROM/RAM bank selection and mode changes.
-- Joypad selection bits, button transitions, and interrupts.
-- PPU tile decoding, palettes, sprite priority, LCD mode timing, and frame
-  boundaries.
-- Debugger formatting and non-mutating memory inspection.
+- CPU 指令结果、标志位、程序计数器、栈行为与周期数。
+- Bus 地址路由、镜像 RAM、禁止访问区域、DMA 与中断标志。
+- 定时器频率、DIV 重置、溢出、重载与中断请求。
+- MBC1 ROM/RAM 存储体选择与模式切换。
+- Joypad 选择位、按键状态变化与中断。
+- PPU 图块解码、调色板、精灵优先级、LCD 模式时序与帧边界。
+- 调试信息格式化与不修改状态的内存查看。
 
-Integration tests run redistributable or user-supplied public test ROMs through
-a headless emulator harness with cycle and timeout limits. The documented
-validation target is:
+集成测试通过无界面模拟器测试工具运行可再分发或由用户提供的公开测试 ROM，并设置周期
+和超时上限。验证目标为：
 
-- CPU instruction and timing test ROMs pass.
-- PPU behavior test ROMs selected for implemented DMG behavior pass.
-- At least one ROM-only game reaches playable output.
-- At least one MBC1 game switches banks and reaches playable output.
+- 选定的 CPU 指令与时序测试 ROM 通过。
+- 选定的 DMG PPU 行为测试 ROM 通过。
+- 至少一款 ROM-only 游戏能进入可玩状态。
+- 至少一款 MBC1 游戏能正确切换存储体并进入可玩状态。
 
-No third-party test ROM binaries are committed unless their licenses explicitly
-permit redistribution. The README documents where users can place external test
-assets locally.
+除非第三方测试 ROM 的许可证明确允许再分发，否则不将其二进制文件提交到仓库。
+README 说明用户应如何在本地放置外部测试资源。
 
-## Development And Review Policy
+## 开发、提交与审查策略
 
-Implementation is divided into large milestones. Work inside each milestone is
-saved through focused Git commits, but expensive review and verification occur
-once at the milestone boundary.
+开发按大版本里程碑推进。每个里程碑内部仍使用职责单一的 Git 提交保存过程，
+但只在整个里程碑完成后集中执行成本较高的代码审查、格式检查、编译和测试。
 
-Each milestone ends with:
+每个里程碑结束时执行：
 
-1. Review all changes made since the previous milestone tag or review commit.
-2. Run `cargo fmt --check`.
-3. Run `cargo clippy --all-targets --all-features -- -D warnings`.
-4. Run the milestone's focused tests.
-5. Run `cargo test --all-targets`.
-6. Run `cargo build --release`.
-7. Record fixes in one or more focused commits.
+1. 审查自上一个里程碑审查提交以来的全部变更。
+2. 运行 `cargo fmt --check`。
+3. 运行 `cargo clippy --all-targets --all-features -- -D warnings`。
+4. 运行当前里程碑的重点测试。
+5. 运行 `cargo test --all-targets`。
+6. 运行 `cargo build --release`。
+7. 将审查中发现的问题通过一个或多个职责单一的提交修复。
 
-Intermediate commits do not require a full compile and test cycle. A narrow
-command may still be run when needed to diagnose a compiler error or verify
-high-risk behavior, but repeated full-project checks are avoided.
+中间提交不要求执行完整编译和测试。仅在诊断编译错误或验证高风险行为确有必要时运行
+范围较小的命令，避免重复执行全项目检查。
 
-Planned milestones:
+计划中的大版本里程碑：
 
-1. Project foundation and cartridge subsystem.
-2. CPU core and interrupts.
-3. Bus, timer, Joypad, and DMA.
-4. PPU and framebuffer.
-5. Emulator orchestration and headless ROM tests.
-6. TUI game/debugger modes and input.
-7. Compatibility validation, README, and release hardening.
+1. 项目基础与卡带子系统。
+2. CPU 核心与中断。
+3. Bus、定时器、Joypad 与 DMA。
+4. PPU 与帧缓冲区。
+5. 模拟器协调层与无界面 ROM 测试。
+6. TUI 游戏/调试模式与输入。
+7. 兼容性验证、README 与发布加固。
 
-## Documentation
+## 文档
 
-The final `README.md` contains:
+最终 `README.md` 使用中文编写，并包含：
 
-- Project status and supported hardware.
-- Build and run commands.
-- ROM ownership notice.
-- Complete controls.
-- Game and debugger mode descriptions.
-- Supported and unsupported cartridge features.
-- Test commands and optional external test ROM layout.
-- Known limitations, including absent audio.
-- High-level architecture and contribution guidance.
+- 项目状态与支持的硬件。
+- 构建和运行命令。
+- ROM 合法持有声明。
+- 完整控制方式。
+- 游戏模式与调试模式说明。
+- 已支持和未支持的卡带功能。
+- 测试命令与可选外部测试 ROM 目录结构。
+- 已知限制，包括不支持音频。
+- 高层架构与贡献说明。
 
-## Acceptance Criteria
+## 验收标准
 
-The first release is complete when:
+满足以下条件时，首个版本视为完成：
 
-- A release build accepts a ROM path and restores the terminal correctly on
-  normal exit and errors.
-- ROM-only and MBC1 cartridges are parsed and banked correctly.
-- CPU, timer, interrupt, Joypad, DMA, and PPU milestone tests pass.
-- Game mode shows stable four-shade DMG frames and accepts all eight controls.
-- Debug mode switches at runtime and supports pause, resume, one-instruction
-  stepping, register display, disassembly, and memory inspection.
-- Selected public CPU and PPU test ROMs pass in the headless harness.
-- At least one ROM-only and one MBC1 game are manually verified as playable.
-- Audio is explicitly reported as unsupported.
-- The README accurately describes build, usage, controls, validation, and
-  limitations.
+- Release 构建可接收 ROM 路径，并在正常退出和错误退出时正确恢复终端。
+- ROM-only 与 MBC1 卡带可被正确解析和切换存储体。
+- CPU、定时器、中断、Joypad、DMA 与 PPU 里程碑测试全部通过。
+- 游戏模式稳定显示四级灰度 DMG 画面，并接收全部八个游戏按键。
+- 调试模式可在运行时切换，并支持暂停、继续、单指令步进、寄存器显示、反汇编和内存查看。
+- 选定的公开 CPU 与 PPU 测试 ROM 在无界面测试工具中通过。
+- 至少一款 ROM-only 游戏和一款 MBC1 游戏经人工验证可玩。
+- 程序和 README 明确说明不支持音频。
+- README 准确说明构建、使用、控制、验证方法与限制。
