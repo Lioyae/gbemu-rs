@@ -1,6 +1,6 @@
-# gbmeu
+# gbmeu-rs
 
-`gbmeu` 是一个使用 Rust 编写、运行于终端中的 Nintendo Game Boy DMG 模拟器。
+`gbmeu-rs` 是一个使用 Rust 编写、运行于终端中的 Nintendo Game Boy DMG 模拟器。
 界面基于 Ratatui 和 Crossterm，提供游戏画面与基础调试器两种模式。
 
 项目当前处于开发阶段。核心模块已有自动化测试，并已接入 Blargg CPU 指令测试、
