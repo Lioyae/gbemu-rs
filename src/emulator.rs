@@ -61,10 +61,7 @@ impl Emulator {
         Ok(cycles)
     }
 
-    pub fn run_until_frame(
-        &mut self,
-        cycle_budget: u32,
-    ) -> Result<FrameRunResult, EmulatorError> {
+    pub fn run_until_frame(&mut self, cycle_budget: u32) -> Result<FrameRunResult, EmulatorError> {
         if self.paused {
             return Ok(FrameRunResult::default());
         }
@@ -136,8 +133,7 @@ mod tests {
 
     #[test]
     fn single_step_advances_cpu_and_hardware_cycles() {
-        let mut emulator =
-            Emulator::from_rom(test_rom(&[0x00; 64])).expect("测试 ROM 应加载成功");
+        let mut emulator = Emulator::from_rom(test_rom(&[0x00; 64])).expect("测试 ROM 应加载成功");
 
         for _ in 0..64 {
             assert_eq!(emulator.step_instruction().expect("NOP 应执行成功"), 4);
@@ -152,9 +148,7 @@ mod tests {
         let mut emulator =
             Emulator::from_rom(test_rom(&[0x18, 0xfe])).expect("测试 ROM 应加载成功");
 
-        let result = emulator
-            .run_until_frame(80_000)
-            .expect("帧运行应成功");
+        let result = emulator.run_until_frame(80_000).expect("帧运行应成功");
 
         assert!(result.frame_ready);
         assert!(result.cycles >= 65_664);
@@ -168,9 +162,7 @@ mod tests {
             Emulator::from_rom(test_rom(&[0x18, 0xfe])).expect("测试 ROM 应加载成功");
         emulator.write_memory(0xff40, 0x00);
 
-        let result = emulator
-            .run_until_frame(1_000)
-            .expect("受限帧运行应成功");
+        let result = emulator.run_until_frame(1_000).expect("受限帧运行应成功");
 
         assert!(!result.frame_ready);
         assert!(result.cycles >= 1_000);
@@ -179,13 +171,10 @@ mod tests {
 
     #[test]
     fn paused_emulator_does_not_run_frame_but_allows_manual_step() {
-        let mut emulator =
-            Emulator::from_rom(test_rom(&[0x00])).expect("测试 ROM 应加载成功");
+        let mut emulator = Emulator::from_rom(test_rom(&[0x00])).expect("测试 ROM 应加载成功");
         emulator.set_paused(true);
 
-        let result = emulator
-            .run_until_frame(100)
-            .expect("暂停运行应成功");
+        let result = emulator.run_until_frame(100).expect("暂停运行应成功");
         assert_eq!(result, FrameRunResult::default());
         assert_eq!(emulator.cpu().registers().pc, 0x0100);
 
@@ -195,8 +184,7 @@ mod tests {
 
     #[test]
     fn forwards_button_state_to_joypad_and_interrupts() {
-        let mut emulator =
-            Emulator::from_rom(test_rom(&[0x00])).expect("测试 ROM 应加载成功");
+        let mut emulator = Emulator::from_rom(test_rom(&[0x00])).expect("测试 ROM 应加载成功");
         emulator.write_memory(0xff00, 0x10);
         emulator.write_memory(0xff0f, 0x00);
 
@@ -220,8 +208,7 @@ mod tests {
 
     #[test]
     fn memory_helpers_route_through_bus() {
-        let mut emulator =
-            Emulator::from_rom(test_rom(&[0x00])).expect("测试 ROM 应加载成功");
+        let mut emulator = Emulator::from_rom(test_rom(&[0x00])).expect("测试 ROM 应加载成功");
 
         emulator.write_memory(0xc000, 0x5a);
 

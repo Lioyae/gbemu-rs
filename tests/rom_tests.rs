@@ -60,8 +60,8 @@ fn blargg_cpu_instrs() {
 #[test]
 #[ignore = "需要用户将 Blargg instr_timing.gb 放入 test-roms/blargg/"]
 fn blargg_instruction_timing() {
-    let result = run_rom_file("test-roms/blargg/instr_timing.gb", 100_000_000)
-        .expect("测试 ROM 应运行成功");
+    let result =
+        run_rom_file("test-roms/blargg/instr_timing.gb", 100_000_000).expect("测试 ROM 应运行成功");
 
     assert_eq!(
         result.status,
