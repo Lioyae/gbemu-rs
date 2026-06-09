@@ -1,3 +1,142 @@
+use std::fmt;
+
+use thiserror::Error;
+
+const HEADER_LENGTH: usize = 0x150;
+const TITLE_START: usize = 0x134;
+const TITLE_END: usize = 0x144;
+const CARTRIDGE_TYPE_ADDRESS: usize = 0x147;
+const ROM_SIZE_ADDRESS: usize = 0x148;
+const RAM_SIZE_ADDRESS: usize = 0x149;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CartridgeType {
+    RomOnly,
+    Mbc1,
+    Mbc1Ram,
+    Mbc1RamBattery,
+}
+
+impl fmt::Display for CartridgeType {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::RomOnly => "ROM-only",
+            Self::Mbc1 => "MBC1",
+            Self::Mbc1Ram => "MBC1+RAM",
+            Self::Mbc1RamBattery => "MBC1+RAM+BATTERY",
+        };
+        formatter.write_str(name)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CartridgeHeader {
+    title: String,
+    cartridge_type: CartridgeType,
+    rom_size: usize,
+    ram_size: usize,
+}
+
+impl CartridgeHeader {
+    pub fn parse(rom: &[u8]) -> Result<Self, CartridgeError> {
+        if rom.len() < HEADER_LENGTH {
+            return Err(CartridgeError::RomTooSmall {
+                actual: rom.len(),
+                minimum: HEADER_LENGTH,
+            });
+        }
+
+        let cartridge_type = parse_cartridge_type(rom[CARTRIDGE_TYPE_ADDRESS])?;
+        let rom_size = parse_rom_size(rom[ROM_SIZE_ADDRESS])?;
+        let ram_size = parse_ram_size(rom[RAM_SIZE_ADDRESS])?;
+
+        if rom.len() < rom_size {
+            return Err(CartridgeError::RomLengthMismatch {
+                actual: rom.len(),
+                declared: rom_size,
+            });
+        }
+
+        let title_bytes = &rom[TITLE_START..TITLE_END];
+        let title_length = title_bytes
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(title_bytes.len());
+        let title = String::from_utf8_lossy(&title_bytes[..title_length])
+            .trim_end()
+            .to_owned();
+
+        Ok(Self {
+            title,
+            cartridge_type,
+            rom_size,
+            ram_size,
+        })
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn cartridge_type(&self) -> CartridgeType {
+        self.cartridge_type
+    }
+
+    pub fn rom_size(&self) -> usize {
+        self.rom_size
+    }
+
+    pub fn ram_size(&self) -> usize {
+        self.ram_size
+    }
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum CartridgeError {
+    #[error("ROM 文件过小：实际 {actual} 字节，至少需要 {minimum} 字节")]
+    RomTooSmall { actual: usize, minimum: usize },
+    #[error("不支持的卡带类型：0x{0:02x}")]
+    UnsupportedCartridgeType(u8),
+    #[error("不支持的 ROM 容量编码：0x{0:02x}")]
+    UnsupportedRomSize(u8),
+    #[error("不支持的 RAM 容量编码：0x{0:02x}")]
+    UnsupportedRamSize(u8),
+    #[error("ROM 文件长度与卡带头不符：实际 {actual} 字节，声明 {declared} 字节")]
+    RomLengthMismatch { actual: usize, declared: usize },
+}
+
+fn parse_cartridge_type(code: u8) -> Result<CartridgeType, CartridgeError> {
+    match code {
+        0x00 => Ok(CartridgeType::RomOnly),
+        0x01 => Ok(CartridgeType::Mbc1),
+        0x02 => Ok(CartridgeType::Mbc1Ram),
+        0x03 => Ok(CartridgeType::Mbc1RamBattery),
+        _ => Err(CartridgeError::UnsupportedCartridgeType(code)),
+    }
+}
+
+fn parse_rom_size(code: u8) -> Result<usize, CartridgeError> {
+    match code {
+        0x00..=0x08 => Ok((32 * 1024) << code),
+        0x52 => Ok(72 * 16 * 1024),
+        0x53 => Ok(80 * 16 * 1024),
+        0x54 => Ok(96 * 16 * 1024),
+        _ => Err(CartridgeError::UnsupportedRomSize(code)),
+    }
+}
+
+fn parse_ram_size(code: u8) -> Result<usize, CartridgeError> {
+    match code {
+        0x00 => Ok(0),
+        0x01 => Ok(2 * 1024),
+        0x02 => Ok(8 * 1024),
+        0x03 => Ok(32 * 1024),
+        0x04 => Ok(128 * 1024),
+        0x05 => Ok(64 * 1024),
+        _ => Err(CartridgeError::UnsupportedRamSize(code)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
