@@ -1,3 +1,93 @@
+use crate::{cartridge::Cartridge, cpu::Memory};
+
+const VRAM_SIZE: usize = 0x2000;
+const WRAM_SIZE: usize = 0x2000;
+const OAM_SIZE: usize = 0x00a0;
+const IO_SIZE: usize = 0x0080;
+const HRAM_SIZE: usize = 0x007f;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Interrupt {
+    VBlank = 0x01,
+    LcdStat = 0x02,
+    Timer = 0x04,
+    Serial = 0x08,
+    Joypad = 0x10,
+}
+
+pub struct Bus {
+    cartridge: Cartridge,
+    vram: [u8; VRAM_SIZE],
+    wram: [u8; WRAM_SIZE],
+    oam: [u8; OAM_SIZE],
+    io: [u8; IO_SIZE],
+    hram: [u8; HRAM_SIZE],
+    interrupt_flags: u8,
+    interrupt_enable: u8,
+}
+
+impl Bus {
+    pub fn new(cartridge: Cartridge) -> Self {
+        Self {
+            cartridge,
+            vram: [0; VRAM_SIZE],
+            wram: [0; WRAM_SIZE],
+            oam: [0; OAM_SIZE],
+            io: [0; IO_SIZE],
+            hram: [0; HRAM_SIZE],
+            interrupt_flags: 0xe1,
+            interrupt_enable: 0,
+        }
+    }
+
+    pub fn request_interrupt(&mut self, interrupt: Interrupt) {
+        self.interrupt_flags |= interrupt as u8;
+    }
+
+    pub fn read_byte(&self, address: u16) -> u8 {
+        match address {
+            0x0000..=0x7fff => self.cartridge.read_rom(address),
+            0x8000..=0x9fff => self.vram[(address - 0x8000) as usize],
+            0xa000..=0xbfff => self.cartridge.read_ram(address),
+            0xc000..=0xdfff => self.wram[(address - 0xc000) as usize],
+            0xe000..=0xfdff => self.wram[(address - 0xe000) as usize],
+            0xfe00..=0xfe9f => self.oam[(address - 0xfe00) as usize],
+            0xfea0..=0xfeff => 0xff,
+            0xff0f => self.interrupt_flags,
+            0xff00..=0xff7f => self.io[(address - 0xff00) as usize],
+            0xff80..=0xfffe => self.hram[(address - 0xff80) as usize],
+            0xffff => self.interrupt_enable,
+        }
+    }
+
+    pub fn write_byte(&mut self, address: u16, value: u8) {
+        match address {
+            0x0000..=0x7fff => self.cartridge.write_rom(address, value),
+            0x8000..=0x9fff => self.vram[(address - 0x8000) as usize] = value,
+            0xa000..=0xbfff => self.cartridge.write_ram(address, value),
+            0xc000..=0xdfff => self.wram[(address - 0xc000) as usize] = value,
+            0xe000..=0xfdff => self.wram[(address - 0xe000) as usize] = value,
+            0xfe00..=0xfe9f => self.oam[(address - 0xfe00) as usize] = value,
+            0xfea0..=0xfeff => {}
+            0xff0f => self.interrupt_flags = value | 0xe0,
+            0xff00..=0xff7f => self.io[(address - 0xff00) as usize] = value,
+            0xff80..=0xfffe => self.hram[(address - 0xff80) as usize] = value,
+            0xffff => self.interrupt_enable = value,
+        }
+    }
+}
+
+impl Memory for Bus {
+    fn read8(&self, address: u16) -> u8 {
+        self.read_byte(address)
+    }
+
+    fn write8(&mut self, address: u16, value: u8) {
+        self.write_byte(address, value);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{cartridge::Cartridge, cpu::Memory};
