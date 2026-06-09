@@ -32,6 +32,10 @@ pub struct Bus {
     joypad: Joypad,
     interrupt_flags: u8,
     interrupt_enable: u8,
+    dma_source: u16,
+    dma_index: u16,
+    dma_cycle: u8,
+    dma_active: bool,
 }
 
 impl Bus {
@@ -47,6 +51,10 @@ impl Bus {
             joypad: Joypad::new(),
             interrupt_flags: 0xe1,
             interrupt_enable: 0,
+            dma_source: 0,
+            dma_index: 0,
+            dma_cycle: 0,
+            dma_active: false,
         }
     }
 
@@ -58,6 +66,9 @@ impl Bus {
         if self.timer.tick(cycles) {
             self.request_interrupt(Interrupt::Timer);
         }
+        for _ in 0..cycles {
+            self.tick_dma();
+        }
     }
 
     pub fn set_button(&mut self, button: JoypadButton, pressed: bool) {
@@ -66,7 +77,25 @@ impl Bus {
         }
     }
 
+    pub fn dma_active(&self) -> bool {
+        self.dma_active
+    }
+
     pub fn read_byte(&self, address: u16) -> u8 {
+        if self.dma_active && !(0xff80..=0xfffe).contains(&address) {
+            return 0xff;
+        }
+        self.read_unrestricted(address)
+    }
+
+    pub fn write_byte(&mut self, address: u16, value: u8) {
+        if self.dma_active && !(0xff80..=0xfffe).contains(&address) {
+            return;
+        }
+        self.write_unrestricted(address, value);
+    }
+
+    fn read_unrestricted(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x7fff => self.cartridge.read_rom(address),
             0x8000..=0x9fff => self.vram[(address - 0x8000) as usize],
@@ -84,7 +113,7 @@ impl Bus {
         }
     }
 
-    pub fn write_byte(&mut self, address: u16, value: u8) {
+    fn write_unrestricted(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x7fff => self.cartridge.write_rom(address, value),
             0x8000..=0x9fff => self.vram[(address - 0x8000) as usize] = value,
@@ -100,9 +129,35 @@ impl Bus {
             }
             0xff04..=0xff07 => self.timer.write(address, value),
             0xff0f => self.interrupt_flags = value | 0xe0,
+            0xff46 => {
+                self.io[(address - 0xff00) as usize] = value;
+                self.dma_source = (value as u16) << 8;
+                self.dma_index = 0;
+                self.dma_cycle = 0;
+                self.dma_active = true;
+            }
             0xff00..=0xff7f => self.io[(address - 0xff00) as usize] = value,
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize] = value,
             0xffff => self.interrupt_enable = value,
+        }
+    }
+
+    fn tick_dma(&mut self) {
+        if !self.dma_active {
+            return;
+        }
+        self.dma_cycle += 1;
+        if self.dma_cycle < 4 {
+            return;
+        }
+        self.dma_cycle = 0;
+
+        let source = self.dma_source.wrapping_add(self.dma_index);
+        let value = self.read_unrestricted(source);
+        self.oam[self.dma_index as usize] = value;
+        self.dma_index += 1;
+        if self.dma_index == OAM_SIZE as u16 {
+            self.dma_active = false;
         }
     }
 }
