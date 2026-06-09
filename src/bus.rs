@@ -326,4 +326,30 @@ mod tests {
         bus.tick(640);
         assert_eq!(bus.read8(0xc000), 0x11);
     }
+
+    #[test]
+    fn routes_ppu_memory_and_registers() {
+        let mut bus = test_bus();
+        bus.write8(0xff40, 0x00);
+        bus.write8(0x8000, 0x12);
+        bus.write8(0xfe00, 0x34);
+        bus.write8(0xff42, 0x56);
+
+        assert_eq!(bus.read8(0x8000), 0x12);
+        assert_eq!(bus.read8(0xfe00), 0x34);
+        assert_eq!(bus.read8(0xff42), 0x56);
+    }
+
+    #[test]
+    fn ppu_tick_requests_vblank_and_stat_interrupts() {
+        let mut bus = test_bus();
+        bus.write8(0xff41, 0x10);
+
+        bus.tick(456 * 144);
+
+        assert_ne!(bus.read8(0xff0f) & Interrupt::VBlank as u8, 0);
+        assert_ne!(bus.read8(0xff0f) & Interrupt::LcdStat as u8, 0);
+        assert!(bus.take_frame_ready());
+        assert!(!bus.take_frame_ready());
+    }
 }
