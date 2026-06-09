@@ -68,11 +68,7 @@ impl Debugger {
         instructions
     }
 
-    pub fn memory_window(
-        emulator: &Emulator,
-        start: u16,
-        length: usize,
-    ) -> Vec<(u16, u8)> {
+    pub fn memory_window(emulator: &Emulator, start: u16, length: usize) -> Vec<(u16, u8)> {
         (0..length)
             .map(|offset| {
                 let address = start.wrapping_add(offset as u16);
@@ -87,7 +83,9 @@ fn decode_instruction(address: u16, opcode: u8, b1: u8, b2: u8) -> (String, usiz
     const R16: [&str; 4] = ["BC", "DE", "HL", "SP"];
     const STACK: [&str; 4] = ["BC", "DE", "HL", "AF"];
     const CONDITIONS: [&str; 4] = ["NZ", "Z", "NC", "C"];
-    const ALU: [&str; 8] = ["ADD A,", "ADC A,", "SUB", "SBC A,", "AND", "XOR", "OR", "CP"];
+    const ALU: [&str; 8] = [
+        "ADD A,", "ADC A,", "SUB", "SBC A,", "AND", "XOR", "OR", "CP",
+    ];
 
     let word = u16::from_le_bytes([b1, b2]);
     if (0x40..=0x7f).contains(&opcode) {
@@ -95,13 +93,21 @@ fn decode_instruction(address: u16, opcode: u8, b1: u8, b2: u8) -> (String, usiz
             return ("HALT".to_owned(), 1);
         }
         return (
-            format!("LD {}, {}", R8[((opcode >> 3) & 7) as usize], R8[(opcode & 7) as usize]),
+            format!(
+                "LD {}, {}",
+                R8[((opcode >> 3) & 7) as usize],
+                R8[(opcode & 7) as usize]
+            ),
             1,
         );
     }
     if (0x80..=0xbf).contains(&opcode) {
         return (
-            format!("{} {}", ALU[((opcode >> 3) & 7) as usize], R8[(opcode & 7) as usize]),
+            format!(
+                "{} {}",
+                ALU[((opcode >> 3) & 7) as usize],
+                R8[(opcode & 7) as usize]
+            ),
             1,
         );
     }
@@ -162,12 +168,12 @@ fn decode_instruction(address: u16, opcode: u8, b1: u8, b2: u8) -> (String, usiz
             format!("RET {}", CONDITIONS[((opcode >> 3) & 3) as usize]),
             1,
         ),
-        0xc1 | 0xd1 | 0xe1 | 0xf1 => (
-            format!("POP {}", STACK[((opcode >> 4) & 3) as usize]),
-            1,
-        ),
+        0xc1 | 0xd1 | 0xe1 | 0xf1 => (format!("POP {}", STACK[((opcode >> 4) & 3) as usize]), 1),
         0xc2 | 0xca | 0xd2 | 0xda => (
-            format!("JP {}, ${word:04X}", CONDITIONS[((opcode >> 3) & 3) as usize]),
+            format!(
+                "JP {}, ${word:04X}",
+                CONDITIONS[((opcode >> 3) & 3) as usize]
+            ),
             3,
         ),
         0xc3 => (format!("JP ${word:04X}"), 3),
@@ -178,10 +184,7 @@ fn decode_instruction(address: u16, opcode: u8, b1: u8, b2: u8) -> (String, usiz
             ),
             3,
         ),
-        0xc5 | 0xd5 | 0xe5 | 0xf5 => (
-            format!("PUSH {}", STACK[((opcode >> 4) & 3) as usize]),
-            1,
-        ),
+        0xc5 | 0xd5 | 0xe5 | 0xf5 => (format!("PUSH {}", STACK[((opcode >> 4) & 3) as usize]), 1),
         0xc6 | 0xce | 0xd6 | 0xde | 0xe6 | 0xee | 0xf6 | 0xfe => (
             format!("{} ${b1:02X}", ALU[((opcode >> 3) & 7) as usize]),
             2,
@@ -284,7 +287,12 @@ mod tests {
 
         assert_eq!(
             memory,
-            vec![(0xfffe, 0xaa), (0xffff, 0xbb), (0x0000, 0x00), (0x0001, 0x00)]
+            vec![
+                (0xfffe, 0xaa),
+                (0xffff, 0xbb),
+                (0x0000, 0x00),
+                (0x0001, 0x00)
+            ]
         );
     }
 

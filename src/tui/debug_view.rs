@@ -84,8 +84,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         })
         .collect();
     frame.render_widget(
-        Paragraph::new(disassembly)
-            .block(Block::default().borders(Borders::ALL).title(" 反汇编 ")),
+        Paragraph::new(disassembly).block(Block::default().borders(Borders::ALL).title(" 反汇编 ")),
         right[0],
     );
 
@@ -125,9 +124,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         vertical[1],
     );
     frame.render_widget(
-        Paragraph::new(
-            "Tab:游戏  Space:暂停/继续  N:单步  PageUp/PageDown:内存翻页  Q/Esc:退出",
-        ),
+        Paragraph::new("Tab:游戏  Space:暂停/继续  N:单步  PageUp/PageDown:内存翻页  Q/Esc:退出"),
         vertical[2],
     );
 }

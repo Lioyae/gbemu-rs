@@ -2,7 +2,7 @@ use ratatui::{
     Frame,
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::Color,
     widgets::{Block, Borders, Paragraph, Widget},
 };
 
