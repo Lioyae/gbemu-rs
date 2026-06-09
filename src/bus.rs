@@ -179,4 +179,28 @@ mod tests {
         assert_eq!(bus.read8(0x0000), 0x00);
         assert_eq!(bus.read16(0xffff), 0x0034);
     }
+
+    #[test]
+    fn routes_timer_registers_and_requests_timer_interrupt() {
+        let mut bus = test_bus();
+        bus.write8(0xff06, 0x42);
+        bus.write8(0xff05, 0xff);
+        bus.write8(0xff07, 0x05);
+
+        bus.tick(20);
+
+        assert_eq!(bus.read8(0xff05), 0x42);
+        assert_ne!(bus.read8(0xff0f) & Interrupt::Timer as u8, 0);
+    }
+
+    #[test]
+    fn routes_joypad_and_requests_joypad_interrupt() {
+        let mut bus = test_bus();
+        bus.write8(0xff00, 0x10);
+
+        bus.set_button(crate::joypad::JoypadButton::A, true);
+
+        assert_eq!(bus.read8(0xff00) & 0x0f, 0x0e);
+        assert_ne!(bus.read8(0xff0f) & Interrupt::Joypad as u8, 0);
+    }
 }
