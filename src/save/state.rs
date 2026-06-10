@@ -12,7 +12,7 @@ use crate::{emulator::Emulator, model::HardwareModel};
 use super::battery::atomic_write;
 
 const MAGIC: &[u8; 4] = b"GBST";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 const HEADER_SIZE: usize = 80;
 const MAX_STATE_SIZE: u64 = 32 * 1024 * 1024;
 

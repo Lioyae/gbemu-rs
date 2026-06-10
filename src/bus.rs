@@ -1,4 +1,5 @@
 use crate::{
+    boot::BootRom,
     cartridge::{Cartridge, CartridgeError, CartridgeHeader, PersistentState},
     cpu::Memory,
     joypad::{Joypad, JoypadButton},
@@ -48,6 +49,8 @@ pub struct Bus {
     hdma_blocks_remaining: u8,
     hdma_active: bool,
     hdma_hblank: bool,
+    boot_rom: Option<BootRom>,
+    boot_rom_enabled: bool,
 }
 
 impl Bus {
@@ -56,6 +59,15 @@ impl Bus {
     }
 
     pub fn with_model(cartridge: Cartridge, model: HardwareModel) -> Self {
+        Self::with_model_and_boot_rom(cartridge, model, None)
+    }
+
+    pub fn with_model_and_boot_rom(
+        cartridge: Cartridge,
+        model: HardwareModel,
+        boot_rom: Option<BootRom>,
+    ) -> Self {
+        let boot_rom_enabled = boot_rom.is_some();
         Self {
             cartridge,
             wram: vec![0; WRAM_SIZE],
@@ -63,7 +75,11 @@ impl Bus {
             hram: vec![0; HRAM_SIZE],
             timer: Timer::new(),
             joypad: Joypad::new(),
-            ppu: Ppu::post_boot_for_model(model),
+            ppu: if boot_rom_enabled {
+                Ppu::power_on_for_model(model)
+            } else {
+                Ppu::post_boot_for_model(model)
+            },
             interrupt_flags: 0xe1,
             interrupt_enable: 0,
             dma_source: 0,
@@ -80,6 +96,8 @@ impl Bus {
             hdma_blocks_remaining: 0,
             hdma_active: false,
             hdma_hblank: false,
+            boot_rom,
+            boot_rom_enabled,
         }
     }
 
@@ -197,6 +215,12 @@ impl Bus {
     }
 
     fn read_unrestricted(&self, address: u16) -> u8 {
+        if self.boot_rom_enabled
+            && let Some(value) = self.boot_rom.as_ref().and_then(|boot| boot.read(address))
+        {
+            return value;
+        }
+
         match address {
             0x0000..=0x7fff => self.cartridge.read_rom(address),
             0x8000..=0x9fff => self.ppu.read_vram(address),
@@ -217,6 +241,7 @@ impl Bus {
             }
             0xff4d => 0xff,
             0xff4f if self.model == HardwareModel::Cgb => 0xfe | self.ppu.vram_bank(),
+            0xff50 => u8::from(!self.boot_rom_enabled),
             0xff51 if self.model == HardwareModel::Cgb => (self.hdma_source >> 8) as u8,
             0xff52 if self.model == HardwareModel::Cgb => self.hdma_source as u8 & 0xf0,
             0xff53 if self.model == HardwareModel::Cgb => {
@@ -267,6 +292,7 @@ impl Bus {
             }
             0xff4d => {}
             0xff4f if self.model == HardwareModel::Cgb => self.ppu.set_vram_bank(value),
+            0xff50 if value != 0 => self.boot_rom_enabled = false,
             0xff51 if self.model == HardwareModel::Cgb => {
                 self.hdma_source = (u16::from(value) << 8) | (self.hdma_source & 0x00f0);
             }

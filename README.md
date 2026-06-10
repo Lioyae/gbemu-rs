@@ -5,7 +5,7 @@ Game Boy Color 模拟器。界面基于 Ratatui 和 Crossterm，提供 ROM 启�
 游戏画面和基础调试器。
 
 项目仍处于开发阶段。目前已经覆盖主要 CPU、内存、PPU、卡带控制器、电池存档和
-即时存档流程，但尚未实现音频和 Boot ROM 启动。
+即时存档流程，并支持用户提供的 Boot ROM；音频仍未实现。
 
 ## 当前功能
 
@@ -22,6 +22,7 @@ Game Boy Color 模拟器。界面基于 Ratatui 和 Crossterm，提供 ROM 启�
 - 暂停、继续和单指令步进。
 - 手动电池存档、RTC/Flash 持久化和未保存退出确认。
 - 带 ROM 哈希与硬件模式校验的 10 槽即时存档。
+- 可选的 256 字节 DMG 与 2304 字节 CGB Boot ROM 启动。
 - 无界面串口测试 ROM 运行工具。
 
 ## 卡带支持
@@ -74,6 +75,23 @@ cargo run --release
 cargo run --release -- path/to/game.gbc
 target/release/gbmeu.exe path/to/game.gb
 ```
+
+双模式 ROM 默认使用 CGB。可以手动选择硬件模式：
+
+```powershell
+target/release/gbmeu.exe --model dmg path/to/game.gb
+target/release/gbmeu.exe --model cgb path/to/game.gbc
+```
+
+使用自己合法取得的 Boot ROM 时，通过对应参数指定文件：
+
+```powershell
+target/release/gbmeu.exe --dmg-boot-rom path/to/dmg_boot.bin path/to/game.gb
+target/release/gbmeu.exe --cgb-boot-rom path/to/cgb_boot.bin path/to/game.gbc
+```
+
+Boot ROM 必须与最终选择的硬件模式匹配。未提供 Boot ROM 时，模拟器继续使用对应硬件的
+开机后寄存器状态，从卡带入口 `0x0100` 开始执行。
 
 Windows 下可以直接双击 `gbmeu.exe` 进入启动器。首次启动时，如果程序当前目录存在
 `roms/`，会自动将其加入 ROM 库。启动器配置保存在操作系统的用户配置目录中。
@@ -185,7 +203,6 @@ src/
 
 - 尚未实现 APU 和音频输出。
 - 尚未实现倒带、作弊和联机线。
-- 尚未支持可选 DMG/CGB Boot ROM，CPU 从跳过 Boot ROM 的初始状态启动。
 - PPU 使用固定 Mode 3 周期模型，未实现逐点像素 FIFO 和全部总线争用细节。
 - GDMA/HDMA 的传输与 CPU 暂停时序仍是近似模型。
 - Pocket Camera、红外、倾斜传感器和震动没有接入真实主机设备。

@@ -52,6 +52,17 @@ pub struct Cpu {
 }
 
 impl Cpu {
+    pub fn power_on() -> Self {
+        Self {
+            registers: Registers::default(),
+            ime: false,
+            ime_enable_delay: 0,
+            halted: false,
+            halt_bug: false,
+            instruction_cycles: 0,
+        }
+    }
+
     pub fn post_boot() -> Self {
         Self::post_boot_for_model(HardwareModel::Dmg)
     }

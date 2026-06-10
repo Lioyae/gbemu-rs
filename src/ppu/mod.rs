@@ -60,6 +60,36 @@ pub struct Ppu {
 }
 
 impl Ppu {
+    pub fn power_on_for_model(model: HardwareModel) -> Self {
+        Self {
+            model,
+            vram: vec![0; VRAM_SIZE],
+            vram_bank: 0,
+            oam: vec![0; OAM_SIZE],
+            framebuffer: Framebuffer::new(),
+            lcdc: 0,
+            stat: 0,
+            scy: 0,
+            scx: 0,
+            ly: 0,
+            lyc: 0,
+            dma: 0xff,
+            bgp: 0,
+            obp0: 0,
+            obp1: 0,
+            wy: 0,
+            wx: 0,
+            dot: 0,
+            mode: LcdMode::HBlank,
+            stat_line: false,
+            pending_stat_interrupt: false,
+            bg_palette_index: 0,
+            obj_palette_index: 0,
+            bg_palette_data: vec![0; 64],
+            obj_palette_data: vec![0; 64],
+        }
+    }
+
     pub fn post_boot() -> Self {
         Self::post_boot_for_model(HardwareModel::Dmg)
     }

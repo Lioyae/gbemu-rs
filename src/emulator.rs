@@ -3,6 +3,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
+    boot::{BootError, BootRoms},
     bus::Bus,
     cartridge::{Cartridge, CartridgeError, CartridgeHeader, PersistentState},
     cpu::{Cpu, instruction::CpuError},
@@ -17,6 +18,8 @@ pub enum EmulatorError {
     Cartridge(#[from] CartridgeError),
     #[error(transparent)]
     Cpu(#[from] CpuError),
+    #[error(transparent)]
+    Boot(#[from] BootError),
     #[error("该卡带要求使用 Game Boy Color 模式")]
     CgbRequired,
 }
@@ -46,6 +49,14 @@ impl Emulator {
         rom: Vec<u8>,
         preference: ModelPreference,
     ) -> Result<Self, EmulatorError> {
+        Self::from_rom_with_boot_roms(rom, preference, BootRoms::default())
+    }
+
+    pub fn from_rom_with_boot_roms(
+        rom: Vec<u8>,
+        preference: ModelPreference,
+        boot_roms: BootRoms,
+    ) -> Result<Self, EmulatorError> {
         let rom_hash = Sha256::digest(&rom).into();
         let cartridge = Cartridge::from_bytes(rom)?;
         let support = cartridge.header().cgb_support();
@@ -53,9 +64,15 @@ impl Emulator {
             return Err(EmulatorError::CgbRequired);
         }
         let model = preference.resolve(support);
+        let boot_rom = boot_roms.into_model(model)?;
+        let booting = boot_rom.is_some();
         Ok(Self {
-            cpu: Cpu::post_boot_for_model(model),
-            bus: Bus::with_model(cartridge, model),
+            cpu: if booting {
+                Cpu::power_on()
+            } else {
+                Cpu::post_boot_for_model(model)
+            },
+            bus: Bus::with_model_and_boot_rom(cartridge, model, boot_rom),
             paused: false,
             model,
             rom_hash,
