@@ -3,12 +3,14 @@ mod mbc1;
 mod mbc2;
 mod mbc3;
 mod mbc5;
+mod mbc6;
 mod mmm01;
 
 use mbc1::Mbc1;
 use mbc2::Mbc2;
 use mbc3::Mbc3;
 use mbc5::Mbc5;
+use mbc6::Mbc6;
 use mmm01::Mmm01;
 
 pub use header::{
@@ -67,6 +69,7 @@ impl Cartridge {
                 header.ram_size(),
                 header.cartridge_type().features().rumble,
             )),
+            CartridgeType::Mbc6 => Controller::Mbc6(Mbc6::new(rom, header.ram_size())),
             cartridge_type => {
                 return Err(CartridgeError::ControllerNotImplemented(cartridge_type));
             }
@@ -180,6 +183,7 @@ enum Controller {
     Mmm01(Mmm01),
     Mbc3(Mbc3),
     Mbc5(Mbc5),
+    Mbc6(Mbc6),
 }
 
 impl MemoryBankController for Controller {
@@ -191,6 +195,7 @@ impl MemoryBankController for Controller {
             Self::Mmm01(controller) => controller.read_rom(address),
             Self::Mbc3(controller) => controller.read_rom(address),
             Self::Mbc5(controller) => controller.read_rom(address),
+            Self::Mbc6(controller) => controller.read_rom(address),
         }
     }
 
@@ -202,6 +207,7 @@ impl MemoryBankController for Controller {
             Self::Mmm01(controller) => controller.write_rom(address, value),
             Self::Mbc3(controller) => controller.write_rom(address, value),
             Self::Mbc5(controller) => controller.write_rom(address, value),
+            Self::Mbc6(controller) => controller.write_rom(address, value),
         }
     }
 
@@ -213,6 +219,7 @@ impl MemoryBankController for Controller {
             Self::Mmm01(controller) => controller.read_ram(address),
             Self::Mbc3(controller) => controller.read_ram(address),
             Self::Mbc5(controller) => controller.read_ram(address),
+            Self::Mbc6(controller) => controller.read_ram(address),
         }
     }
 
@@ -224,6 +231,7 @@ impl MemoryBankController for Controller {
             Self::Mmm01(controller) => controller.write_ram(address, value),
             Self::Mbc3(controller) => controller.write_ram(address, value),
             Self::Mbc5(controller) => controller.write_ram(address, value),
+            Self::Mbc6(controller) => controller.write_ram(address, value),
         }
     }
 }
@@ -338,6 +346,7 @@ mod tests {
             (0x1c, 0x02, 0x00),
             (0x1d, 0x02, 0x03),
             (0x1e, 0x02, 0x03),
+            (0x20, 0x02, 0x03),
         ];
 
         for (cartridge_type, rom_size, ram_size) in cases {
