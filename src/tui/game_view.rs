@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::{
     app::App,
-    ppu::framebuffer::{Framebuffer, Shade},
+    ppu::framebuffer::{Framebuffer, Pixel},
 };
 
 pub fn render(frame: &mut Frame, app: &App) {
@@ -59,20 +59,15 @@ impl Widget for GameScreen<'_> {
             for x in 0..160usize {
                 let cell = &mut buffer[(area.x + x as u16, area.y + y as u16)];
                 cell.set_symbol("▀")
-                    .set_fg(shade_color(self.0.pixel(x, y * 2)))
-                    .set_bg(shade_color(self.0.pixel(x, y * 2 + 1)));
+                    .set_fg(pixel_color(self.0.pixel(x, y * 2)))
+                    .set_bg(pixel_color(self.0.pixel(x, y * 2 + 1)));
             }
         }
     }
 }
 
-fn shade_color(shade: Shade) -> Color {
-    match shade {
-        Shade::White => Color::Rgb(224, 248, 208),
-        Shade::LightGray => Color::Rgb(136, 192, 112),
-        Shade::DarkGray => Color::Rgb(52, 104, 86),
-        Shade::Black => Color::Rgb(8, 24, 32),
-    }
+fn pixel_color(pixel: Pixel) -> Color {
+    Color::Rgb(pixel.red, pixel.green, pixel.blue)
 }
 
 fn centered(width: u16, height: u16, area: Rect) -> Rect {

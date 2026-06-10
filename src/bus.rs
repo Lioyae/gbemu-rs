@@ -41,6 +41,11 @@ pub struct Bus {
     double_speed: bool,
     speed_switch_armed: bool,
     wram_bank: u8,
+    hdma_source: u16,
+    hdma_destination: u16,
+    hdma_blocks_remaining: u8,
+    hdma_active: bool,
+    hdma_hblank: bool,
 }
 
 impl Bus {
@@ -56,7 +61,7 @@ impl Bus {
             hram: [0; HRAM_SIZE],
             timer: Timer::new(),
             joypad: Joypad::new(),
-            ppu: Ppu::post_boot(),
+            ppu: Ppu::post_boot_for_model(model),
             interrupt_flags: 0xe1,
             interrupt_enable: 0,
             dma_source: 0,
@@ -68,6 +73,11 @@ impl Bus {
             double_speed: false,
             speed_switch_armed: false,
             wram_bank: 1,
+            hdma_source: 0,
+            hdma_destination: 0x8000,
+            hdma_blocks_remaining: 0,
+            hdma_active: false,
+            hdma_hblank: false,
         }
     }
 
@@ -90,6 +100,9 @@ impl Bus {
         }
         if ppu_events.stat_interrupt {
             self.request_interrupt(Interrupt::LcdStat);
+        }
+        if ppu_events.hblank_started && self.hdma_active && self.hdma_hblank {
+            self.transfer_hdma_block();
         }
         self.frame_ready |= ppu_events.frame_ready;
         for _ in 0..cycles {
@@ -178,6 +191,16 @@ impl Bus {
             }
             0xff4d => 0xff,
             0xff4f if self.model == HardwareModel::Cgb => 0xfe | self.ppu.vram_bank(),
+            0xff51 if self.model == HardwareModel::Cgb => (self.hdma_source >> 8) as u8,
+            0xff52 if self.model == HardwareModel::Cgb => self.hdma_source as u8 & 0xf0,
+            0xff53 if self.model == HardwareModel::Cgb => {
+                ((self.hdma_destination - 0x8000) >> 8) as u8 & 0x1f
+            }
+            0xff54 if self.model == HardwareModel::Cgb => {
+                (self.hdma_destination - 0x8000) as u8 & 0xf0
+            }
+            0xff55 if self.model == HardwareModel::Cgb => self.hdma_status(),
+            0xff68..=0xff6b if self.model == HardwareModel::Cgb => self.ppu.read_register(address),
             0xff70 if self.model == HardwareModel::Cgb => 0xf8 | self.wram_bank,
             0xff4c..=0xff7f => self.io[(address - 0xff00) as usize],
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize],
@@ -218,6 +241,24 @@ impl Bus {
             }
             0xff4d => {}
             0xff4f if self.model == HardwareModel::Cgb => self.ppu.set_vram_bank(value),
+            0xff51 if self.model == HardwareModel::Cgb => {
+                self.hdma_source = (u16::from(value) << 8) | (self.hdma_source & 0x00f0);
+            }
+            0xff52 if self.model == HardwareModel::Cgb => {
+                self.hdma_source = (self.hdma_source & 0xff00) | u16::from(value & 0xf0);
+            }
+            0xff53 if self.model == HardwareModel::Cgb => {
+                self.hdma_destination =
+                    0x8000 | (u16::from(value & 0x1f) << 8) | (self.hdma_destination & 0x00f0);
+            }
+            0xff54 if self.model == HardwareModel::Cgb => {
+                self.hdma_destination =
+                    (self.hdma_destination & 0x1f00) | 0x8000 | u16::from(value & 0xf0);
+            }
+            0xff55 if self.model == HardwareModel::Cgb => self.start_hdma(value),
+            0xff68..=0xff6b if self.model == HardwareModel::Cgb => {
+                self.ppu.write_register(address, value);
+            }
             0xff70 if self.model == HardwareModel::Cgb => {
                 self.wram_bank = value & 0x07;
                 if self.wram_bank == 0 {
@@ -272,6 +313,49 @@ impl Bus {
     fn write_wram(&mut self, address: u16, value: u8) {
         let index = self.wram_index(address);
         self.wram[index] = value;
+    }
+
+    fn hdma_status(&self) -> u8 {
+        if self.hdma_blocks_remaining == 0 {
+            return 0xff;
+        }
+        let remaining = self.hdma_blocks_remaining - 1;
+        if self.hdma_active {
+            remaining
+        } else {
+            0x80 | remaining
+        }
+    }
+
+    fn start_hdma(&mut self, value: u8) {
+        if self.hdma_active && self.hdma_hblank && value & 0x80 == 0 {
+            self.hdma_active = false;
+            return;
+        }
+
+        self.hdma_blocks_remaining = (value & 0x7f) + 1;
+        self.hdma_hblank = value & 0x80 != 0;
+        self.hdma_active = true;
+        if !self.hdma_hblank {
+            while self.hdma_active {
+                self.transfer_hdma_block();
+            }
+        }
+    }
+
+    fn transfer_hdma_block(&mut self) {
+        for offset in 0..0x10u16 {
+            let value = self.read_dma_source(self.hdma_source.wrapping_add(offset));
+            self.ppu
+                .write_vram_raw(self.hdma_destination.wrapping_add(offset), value);
+        }
+        self.hdma_source = self.hdma_source.wrapping_add(0x10);
+        self.hdma_destination = 0x8000 | (self.hdma_destination.wrapping_add(0x10) & 0x1ff0);
+        self.hdma_blocks_remaining -= 1;
+        if self.hdma_blocks_remaining == 0 {
+            self.hdma_active = false;
+            self.hdma_hblank = false;
+        }
     }
 }
 
@@ -432,6 +516,47 @@ mod tests {
 
         bus.write8(0xff4f, 0x00);
         assert_eq!(bus.read8(0x8000), 0x11);
+    }
+
+    #[test]
+    fn cgb_gdma_copies_requested_blocks_to_vram() {
+        let mut bus = cgb_bus();
+        bus.write8(0xff40, 0x00);
+        for offset in 0..32u16 {
+            bus.write8(0xc000 + offset, offset as u8);
+        }
+
+        bus.write8(0xff51, 0xc0);
+        bus.write8(0xff52, 0x00);
+        bus.write8(0xff53, 0x00);
+        bus.write8(0xff54, 0x00);
+        bus.write8(0xff55, 0x01);
+
+        for offset in 0..32u16 {
+            assert_eq!(bus.read8(0x8000 + offset), offset as u8);
+        }
+        assert_eq!(bus.read8(0xff55), 0xff);
+    }
+
+    #[test]
+    fn cgb_hdma_copies_one_block_per_hblank() {
+        let mut bus = cgb_bus();
+        for offset in 0..32u16 {
+            bus.write8(0xc000 + offset, 0x80 | offset as u8);
+        }
+        bus.write8(0xff51, 0xc0);
+        bus.write8(0xff52, 0x00);
+        bus.write8(0xff53, 0x00);
+        bus.write8(0xff54, 0x00);
+        bus.write8(0xff55, 0x81);
+
+        bus.tick(252);
+        assert_eq!(bus.peek_byte(0x800f), 0x8f);
+        assert_eq!(bus.peek_byte(0x8010), 0x00);
+
+        bus.tick(456);
+        assert_eq!(bus.peek_byte(0x801f), 0x9f);
+        assert_eq!(bus.read8(0xff55), 0xff);
     }
 
     #[test]

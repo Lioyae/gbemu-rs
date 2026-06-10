@@ -1,6 +1,8 @@
 pub mod framebuffer;
 
-use framebuffer::{Framebuffer, Shade};
+use crate::model::HardwareModel;
+
+use framebuffer::{Framebuffer, Pixel, Shade};
 
 const VRAM_BANK_SIZE: usize = 0x2000;
 const VRAM_SIZE: usize = VRAM_BANK_SIZE * 2;
@@ -24,9 +26,11 @@ pub struct PpuEvents {
     pub vblank_interrupt: bool,
     pub stat_interrupt: bool,
     pub frame_ready: bool,
+    pub hblank_started: bool,
 }
 
 pub struct Ppu {
+    model: HardwareModel,
     vram: [u8; VRAM_SIZE],
     vram_bank: u8,
     oam: [u8; OAM_SIZE],
@@ -47,11 +51,20 @@ pub struct Ppu {
     mode: LcdMode,
     stat_line: bool,
     pending_stat_interrupt: bool,
+    bg_palette_index: u8,
+    obj_palette_index: u8,
+    bg_palette_data: [u8; 64],
+    obj_palette_data: [u8; 64],
 }
 
 impl Ppu {
     pub fn post_boot() -> Self {
+        Self::post_boot_for_model(HardwareModel::Dmg)
+    }
+
+    pub fn post_boot_for_model(model: HardwareModel) -> Self {
         Self {
+            model,
             vram: [0; VRAM_SIZE],
             vram_bank: 0,
             oam: [0; OAM_SIZE],
@@ -72,6 +85,10 @@ impl Ppu {
             mode: LcdMode::OamScan,
             stat_line: false,
             pending_stat_interrupt: false,
+            bg_palette_index: 0,
+            obj_palette_index: 0,
+            bg_palette_data: [0xff; 64],
+            obj_palette_data: [0xff; 64],
         }
     }
 
@@ -126,6 +143,13 @@ impl Ppu {
         self.read_vram_bank(self.vram_bank, address)
     }
 
+    pub(crate) fn write_vram_raw(&mut self, address: u16, value: u8) {
+        let index = self.vram_index(self.vram_bank, address);
+        if let Some(byte) = self.vram.get_mut(index) {
+            *byte = value;
+        }
+    }
+
     fn read_vram_bank(&self, bank: u8, address: u16) -> u8 {
         self.vram
             .get(self.vram_index(bank, address))
@@ -164,6 +188,14 @@ impl Ppu {
             0xff49 => self.obp1,
             0xff4a => self.wy,
             0xff4b => self.wx,
+            0xff68 if self.model == HardwareModel::Cgb => self.bg_palette_index | 0x40,
+            0xff69 if self.model == HardwareModel::Cgb => {
+                self.bg_palette_data[usize::from(self.bg_palette_index & 0x3f)]
+            }
+            0xff6a if self.model == HardwareModel::Cgb => self.obj_palette_index | 0x40,
+            0xff6b if self.model == HardwareModel::Cgb => {
+                self.obj_palette_data[usize::from(self.obj_palette_index & 0x3f)]
+            }
             _ => 0xff,
         }
     }
@@ -182,6 +214,24 @@ impl Ppu {
             0xff49 => self.obp1 = value,
             0xff4a => self.wy = value,
             0xff4b => self.wx = value,
+            0xff68 if self.model == HardwareModel::Cgb => self.bg_palette_index = value & 0xbf,
+            0xff69 if self.model == HardwareModel::Cgb => {
+                let index = usize::from(self.bg_palette_index & 0x3f);
+                self.bg_palette_data[index] = value;
+                if self.bg_palette_index & 0x80 != 0 {
+                    self.bg_palette_index =
+                        (self.bg_palette_index & 0x80) | ((self.bg_palette_index + 1) & 0x3f);
+                }
+            }
+            0xff6a if self.model == HardwareModel::Cgb => self.obj_palette_index = value & 0xbf,
+            0xff6b if self.model == HardwareModel::Cgb => {
+                let index = usize::from(self.obj_palette_index & 0x3f);
+                self.obj_palette_data[index] = value;
+                if self.obj_palette_index & 0x80 != 0 {
+                    self.obj_palette_index =
+                        (self.obj_palette_index & 0x80) | ((self.obj_palette_index + 1) & 0x3f);
+                }
+            }
             _ => {}
         }
         self.update_stat_line();
@@ -206,6 +256,7 @@ impl Ppu {
                 LcdMode::Drawing if self.dot == DRAWING_END => {
                     self.render_scanline();
                     self.mode = LcdMode::HBlank;
+                    events.hblank_started = true;
                     self.update_stat_event(&mut events);
                 }
                 LcdMode::HBlank if self.dot == SCANLINE_END => {
@@ -295,22 +346,26 @@ impl Ppu {
             return;
         }
 
-        let mut background_colors = [0u8; 160];
-        for (x, background_color) in background_colors.iter_mut().enumerate() {
-            let color = self.background_or_window_color(x as u8);
-            *background_color = color;
-            self.framebuffer
-                .set_pixel(x, self.ly as usize, palette_shade(self.bgp, color));
+        let mut background_pixels = [BackgroundPixel::default(); 160];
+        for (x, background_pixel) in background_pixels.iter_mut().enumerate() {
+            let pixel = self.background_or_window_pixel(x as u8);
+            *background_pixel = pixel;
+            let output = if self.model == HardwareModel::Cgb {
+                palette_pixel(&self.bg_palette_data, pixel.palette, pixel.color)
+            } else {
+                Pixel::from(palette_shade(self.bgp, pixel.color))
+            };
+            self.framebuffer.set_pixel(x, self.ly as usize, output);
         }
 
         if self.lcdc & 0x02 != 0 {
-            self.render_sprites(&background_colors);
+            self.render_sprites(&background_pixels);
         }
     }
 
-    fn background_or_window_color(&self, x: u8) -> u8 {
-        if self.lcdc & 0x01 == 0 {
-            return 0;
+    fn background_or_window_pixel(&self, x: u8) -> BackgroundPixel {
+        if self.model == HardwareModel::Dmg && self.lcdc & 0x01 == 0 {
+            return BackgroundPixel::default();
         }
 
         let window_visible =
@@ -343,15 +398,34 @@ impl Ppu {
         let tile_y = u16::from(pixel_y / 8);
         let map_address = map_base + tile_y * 32 + tile_x;
         let tile_number = self.read_vram_bank(0, map_address);
+        let attributes = if self.model == HardwareModel::Cgb {
+            self.read_vram_bank(1, map_address)
+        } else {
+            0
+        };
         let tile_address = if self.lcdc & 0x10 != 0 {
             0x8000 + u16::from(tile_number) * 16
         } else {
             (0x9000i32 + i32::from(tile_number as i8) * 16) as u16
         };
-        self.tile_color(tile_address, pixel_x % 8, pixel_y % 8)
+        let tile_x = if attributes & 0x20 != 0 {
+            7 - pixel_x % 8
+        } else {
+            pixel_x % 8
+        };
+        let tile_y = if attributes & 0x40 != 0 {
+            7 - pixel_y % 8
+        } else {
+            pixel_y % 8
+        };
+        BackgroundPixel {
+            color: self.tile_color(attributes >> 3 & 0x01, tile_address, tile_x, tile_y),
+            palette: attributes & 0x07,
+            priority: attributes & 0x80 != 0,
+        }
     }
 
-    fn render_sprites(&mut self, background_colors: &[u8; 160]) {
+    fn render_sprites(&mut self, background_pixels: &[BackgroundPixel; 160]) {
         let sprite_height = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
         let mut sprites = Vec::with_capacity(10);
 
@@ -370,9 +444,11 @@ impl Ppu {
                 ));
             }
         }
-        sprites.sort_by_key(|(index, raw_x, _, _, _)| (*raw_x, *index));
+        if self.model == HardwareModel::Dmg {
+            sprites.sort_by_key(|(index, raw_x, _, _, _)| (*raw_x, *index));
+        }
 
-        for (x, background_color) in background_colors.iter().enumerate() {
+        for (x, background_pixel) in background_pixels.iter().enumerate() {
             for (_, raw_x, raw_y, tile_number, attributes) in &sprites {
                 let left = i16::from(*raw_x) - 8;
                 let local_x = x as i16 - left;
@@ -398,29 +474,45 @@ impl Ppu {
                 } else {
                     (*tile_number, local_y as u8)
                 };
-                let color = self.tile_color(0x8000 + u16::from(tile) * 16, pixel_x, row);
+                let bank = if self.model == HardwareModel::Cgb {
+                    attributes >> 3 & 0x01
+                } else {
+                    0
+                };
+                let color = self.tile_color(bank, 0x8000 + u16::from(tile) * 16, pixel_x, row);
                 if color == 0 {
                     continue;
                 }
 
-                if attributes & 0x80 == 0 || *background_color == 0 {
-                    let palette = if attributes & 0x10 != 0 {
-                        self.obp1
+                let background_wins = if self.model == HardwareModel::Cgb {
+                    self.lcdc & 0x01 != 0
+                        && background_pixel.color != 0
+                        && (background_pixel.priority || attributes & 0x80 != 0)
+                } else {
+                    attributes & 0x80 != 0 && background_pixel.color != 0
+                };
+                if !background_wins {
+                    let output = if self.model == HardwareModel::Cgb {
+                        palette_pixel(&self.obj_palette_data, attributes & 0x07, color)
                     } else {
-                        self.obp0
+                        let palette = if attributes & 0x10 != 0 {
+                            self.obp1
+                        } else {
+                            self.obp0
+                        };
+                        Pixel::from(palette_shade(palette, color))
                     };
-                    self.framebuffer
-                        .set_pixel(x, self.ly as usize, palette_shade(palette, color));
+                    self.framebuffer.set_pixel(x, self.ly as usize, output);
                 }
                 break;
             }
         }
     }
 
-    fn tile_color(&self, tile_address: u16, x: u8, y: u8) -> u8 {
+    fn tile_color(&self, bank: u8, tile_address: u16, x: u8, y: u8) -> u8 {
         let row_address = tile_address + u16::from(y) * 2;
-        let low = self.read_vram_bank(0, row_address);
-        let high = self.read_vram_bank(0, row_address + 1);
+        let low = self.read_vram_bank(bank, row_address);
+        let high = self.read_vram_bank(bank, row_address + 1);
         let bit = 7 - x;
         ((high >> bit) & 1) << 1 | ((low >> bit) & 1)
     }
@@ -436,9 +528,23 @@ fn palette_shade(palette: u8, color: u8) -> Shade {
     Shade::from_color((palette >> (color * 2)) & 0x03)
 }
 
+fn palette_pixel(data: &[u8; 64], palette: u8, color: u8) -> Pixel {
+    let index = usize::from(palette & 0x07) * 8 + usize::from(color & 0x03) * 2;
+    let value = u16::from(data[index]) | u16::from(data[index + 1]) << 8;
+    Pixel::from_rgb555(value)
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct BackgroundPixel {
+    color: u8,
+    palette: u8,
+    priority: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::HardwareModel;
 
     #[test]
     fn starts_in_oam_scan_with_post_boot_registers() {
@@ -461,7 +567,13 @@ mod tests {
 
         assert_eq!(ppu.tick(171), PpuEvents::default());
         assert_eq!(ppu.mode(), LcdMode::Drawing);
-        assert_eq!(ppu.tick(1), PpuEvents::default());
+        assert_eq!(
+            ppu.tick(1),
+            PpuEvents {
+                hblank_started: true,
+                ..PpuEvents::default()
+            }
+        );
         assert_eq!(ppu.mode(), LcdMode::HBlank);
 
         assert_eq!(ppu.tick(203), PpuEvents::default());
@@ -653,5 +765,44 @@ mod tests {
         ppu.tick(252);
 
         assert_eq!(ppu.framebuffer().pixel(0, 0), Shade::LightGray);
+    }
+
+    #[test]
+    fn cgb_palette_data_auto_increments_index() {
+        let mut ppu = Ppu::post_boot_for_model(HardwareModel::Cgb);
+
+        ppu.write_register(0xff68, 0x80);
+        ppu.write_register(0xff69, 0x1f);
+        ppu.write_register(0xff69, 0x00);
+
+        assert_eq!(ppu.read_register(0xff68), 0xc2);
+        ppu.write_register(0xff68, 0x00);
+        assert_eq!(ppu.read_register(0xff69), 0x1f);
+        ppu.write_register(0xff68, 0x01);
+        assert_eq!(ppu.read_register(0xff69), 0x00);
+    }
+
+    #[test]
+    fn cgb_background_uses_tile_bank_and_color_palette() {
+        let mut ppu = Ppu::post_boot_for_model(HardwareModel::Cgb);
+        ppu.write_register(0xff40, 0x00);
+
+        ppu.set_vram_bank(0);
+        ppu.write_vram(0x9800, 0x00);
+        ppu.set_vram_bank(1);
+        ppu.write_vram(0x9800, 0x0a);
+        ppu.write_vram(0x8000, 0x80);
+        ppu.write_vram(0x8001, 0x00);
+
+        ppu.write_register(0xff68, 0x92);
+        ppu.write_register(0xff69, 0x1f);
+        ppu.write_register(0xff69, 0x00);
+        ppu.write_register(0xff40, 0x91);
+        ppu.tick(252);
+
+        assert_eq!(
+            ppu.framebuffer().pixel(0, 0),
+            framebuffer::Pixel::rgb(255, 0, 0)
+        );
     }
 }

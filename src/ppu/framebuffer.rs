@@ -23,15 +23,54 @@ impl Shade {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Pixel {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+}
+
+impl Pixel {
+    pub const fn rgb(red: u8, green: u8, blue: u8) -> Self {
+        Self { red, green, blue }
+    }
+
+    pub fn from_rgb555(value: u16) -> Self {
+        fn expand(value: u16) -> u8 {
+            let value = value as u8 & 0x1f;
+            (value << 3) | (value >> 2)
+        }
+
+        Self::rgb(expand(value), expand(value >> 5), expand(value >> 10))
+    }
+}
+
+impl From<Shade> for Pixel {
+    fn from(shade: Shade) -> Self {
+        match shade {
+            Shade::White => Self::rgb(224, 248, 208),
+            Shade::LightGray => Self::rgb(136, 192, 112),
+            Shade::DarkGray => Self::rgb(52, 104, 86),
+            Shade::Black => Self::rgb(8, 24, 32),
+        }
+    }
+}
+
+impl PartialEq<Shade> for Pixel {
+    fn eq(&self, other: &Shade) -> bool {
+        *self == Pixel::from(*other)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct Framebuffer {
-    pixels: [Shade; SCREEN_WIDTH * SCREEN_HEIGHT],
+    pixels: [Pixel; SCREEN_WIDTH * SCREEN_HEIGHT],
 }
 
 impl Framebuffer {
     pub fn new() -> Self {
         Self {
-            pixels: [Shade::White; SCREEN_WIDTH * SCREEN_HEIGHT],
+            pixels: [Pixel::rgb(224, 248, 208); SCREEN_WIDTH * SCREEN_HEIGHT],
         }
     }
 
@@ -43,26 +82,26 @@ impl Framebuffer {
         SCREEN_HEIGHT
     }
 
-    pub fn pixels(&self) -> &[Shade] {
+    pub fn pixels(&self) -> &[Pixel] {
         &self.pixels
     }
 
-    pub fn pixel(&self, x: usize, y: usize) -> Shade {
+    pub fn pixel(&self, x: usize, y: usize) -> Pixel {
         self.pixels
             .get(y.saturating_mul(SCREEN_WIDTH).saturating_add(x))
             .copied()
             .filter(|_| x < SCREEN_WIDTH && y < SCREEN_HEIGHT)
-            .unwrap_or(Shade::White)
+            .unwrap_or_else(|| Pixel::from(Shade::White))
     }
 
-    pub fn set_pixel(&mut self, x: usize, y: usize, shade: Shade) {
+    pub fn set_pixel(&mut self, x: usize, y: usize, pixel: impl Into<Pixel>) {
         if x < SCREEN_WIDTH && y < SCREEN_HEIGHT {
-            self.pixels[y * SCREEN_WIDTH + x] = shade;
+            self.pixels[y * SCREEN_WIDTH + x] = pixel.into();
         }
     }
 
-    pub fn clear(&mut self, shade: Shade) {
-        self.pixels.fill(shade);
+    pub fn clear(&mut self, pixel: impl Into<Pixel>) {
+        self.pixels.fill(pixel.into());
     }
 }
 
@@ -105,5 +144,13 @@ mod tests {
         assert_eq!(Shade::from_color(2), Shade::DarkGray);
         assert_eq!(Shade::from_color(3), Shade::Black);
         assert_eq!(Shade::from_color(7), Shade::Black);
+    }
+
+    #[test]
+    fn converts_cgb_rgb555_to_eight_bit_rgb() {
+        assert_eq!(Pixel::from_rgb555(0x001f), Pixel::rgb(255, 0, 0));
+        assert_eq!(Pixel::from_rgb555(0x03e0), Pixel::rgb(0, 255, 0));
+        assert_eq!(Pixel::from_rgb555(0x7c00), Pixel::rgb(0, 0, 255));
+        assert_eq!(Pixel::from_rgb555(0x7fff), Pixel::rgb(255, 255, 255));
     }
 }
