@@ -1,4 +1,7 @@
-use super::MemoryBankController;
+use super::{
+    CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
+    validate_persistent_length,
+};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_BANK_SIZE: usize = 8 * 1024;
@@ -24,6 +27,7 @@ impl Huc1 {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn infrared_transmitting(&self) -> bool {
         self.infrared_transmitting
     }
@@ -91,6 +95,20 @@ impl MemoryBankController for Huc1 {
             *byte = value;
         }
     }
+
+    fn persistent_state(&self) -> PersistentState {
+        PersistentState {
+            ram: self.ram.clone(),
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        load_persistent_bytes(&mut self.ram, &state.ram, "HuC1 RAM")
+    }
 }
 
 pub(super) struct Huc3 {
@@ -122,6 +140,7 @@ impl Huc3 {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn register(&self, index: usize) -> u8 {
         self.registers.get(index).copied().unwrap_or(0xff)
     }
@@ -247,6 +266,35 @@ impl MemoryBankController for Huc3 {
             0x0e => self.infrared_transmitting = value & 0x01 != 0,
             _ => {}
         }
+    }
+
+    fn persistent_state(&self) -> PersistentState {
+        let mut rtc = self.registers.to_vec();
+        rtc.extend_from_slice(&self.subminute_seconds.to_le_bytes());
+        PersistentState {
+            ram: self.ram.clone(),
+            rtc,
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        const RTC_SIZE: usize = 256 + 8;
+        validate_persistent_length(self.ram.len(), state.ram.len(), "HuC3 RAM")?;
+        validate_persistent_length(RTC_SIZE, state.rtc.len(), "HuC3 RTC")?;
+
+        self.ram.copy_from_slice(&state.ram);
+        self.registers.copy_from_slice(&state.rtc[..256]);
+        self.subminute_seconds =
+            u64::from_le_bytes(state.rtc[256..264].try_into().expect("RTC 长度已校验"));
+        Ok(())
+    }
+
+    fn tick_rtc(&mut self, elapsed_seconds: u64) {
+        Huc3::tick_rtc(self, elapsed_seconds);
     }
 }
 

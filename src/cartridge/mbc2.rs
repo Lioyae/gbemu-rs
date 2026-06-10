@@ -1,4 +1,6 @@
-use super::MemoryBankController;
+use super::{
+    CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
+};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_SIZE: usize = 512;
@@ -77,6 +79,20 @@ impl MemoryBankController for Mbc2 {
         if let Some(index) = Self::ram_index(address) {
             self.ram[index] = value & 0x0f;
         }
+    }
+
+    fn persistent_state(&self) -> PersistentState {
+        PersistentState {
+            ram: self.ram.to_vec(),
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        load_persistent_bytes(&mut self.ram, &state.ram, "MBC2 RAM")
     }
 }
 

@@ -1,4 +1,6 @@
-use super::MemoryBankController;
+use super::{
+    CartridgeError, MemoryBankController, PersistentState, validate_persistent_length,
+};
 
 const ROM_BANK_SIZE: usize = 8 * 1024;
 const RAM_BANK_SIZE: usize = 4 * 1024;
@@ -191,6 +193,25 @@ impl MemoryBankController for Mbc6 {
         {
             *byte = value;
         }
+    }
+
+    fn persistent_state(&self) -> PersistentState {
+        PersistentState {
+            ram: self.ram.clone(),
+            flash: self.flash.clone(),
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        validate_persistent_length(self.ram.len(), state.ram.len(), "MBC6 RAM")?;
+        validate_persistent_length(self.flash.len(), state.flash.len(), "MBC6 Flash")?;
+        self.ram.copy_from_slice(&state.ram);
+        self.flash.copy_from_slice(&state.flash);
+        Ok(())
     }
 }
 

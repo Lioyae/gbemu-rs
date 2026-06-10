@@ -1,5 +1,5 @@
 use crate::{
-    cartridge::{Cartridge, CartridgeHeader},
+    cartridge::{Cartridge, CartridgeError, CartridgeHeader, PersistentState},
     cpu::Memory,
     joypad::{Joypad, JoypadButton},
     model::HardwareModel,
@@ -94,6 +94,7 @@ impl Bus {
         } else {
             cycles
         };
+        self.cartridge.tick(ppu_cycles);
         let ppu_events = self.ppu.tick(ppu_cycles);
         if ppu_events.vblank_interrupt {
             self.request_interrupt(Interrupt::VBlank);
@@ -126,6 +127,25 @@ impl Bus {
 
     pub fn cartridge_header(&self) -> &CartridgeHeader {
         self.cartridge.header()
+    }
+
+    pub fn cartridge_persistent_state(&self) -> PersistentState {
+        self.cartridge.persistent_state()
+    }
+
+    pub fn load_cartridge_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        self.cartridge.load_persistent_state(state)
+    }
+
+    pub fn cartridge_persistent_dirty(&self) -> bool {
+        self.cartridge.persistent_dirty()
+    }
+
+    pub fn clear_cartridge_persistent_dirty(&mut self) {
+        self.cartridge.clear_persistent_dirty();
     }
 
     pub fn model(&self) -> HardwareModel {

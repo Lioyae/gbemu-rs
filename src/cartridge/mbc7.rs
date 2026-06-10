@@ -1,4 +1,6 @@
-use super::MemoryBankController;
+use super::{
+    CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
+};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const EEPROM_SIZE: usize = 256;
@@ -49,6 +51,7 @@ impl Mbc7 {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn eeprom(&self) -> &[u8] {
         &self.eeprom
     }
@@ -254,6 +257,20 @@ impl MemoryBankController for Mbc7 {
             0x0080 => self.write_eeprom_pins(value),
             _ => {}
         }
+    }
+
+    fn persistent_state(&self) -> PersistentState {
+        PersistentState {
+            ram: self.eeprom.to_vec(),
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        load_persistent_bytes(&mut self.eeprom, &state.ram, "MBC7 EEPROM")
     }
 }
 

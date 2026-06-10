@@ -25,16 +25,42 @@ pub use header::{
     CartridgeError, CartridgeFeatures, CartridgeHeader, CartridgeType, CgbSupport, ControllerKind,
 };
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersistentState {
+    pub controller: ControllerKind,
+    pub ram: Vec<u8>,
+    pub rtc: Vec<u8>,
+    pub flash: Vec<u8>,
+}
+
 pub trait MemoryBankController {
     fn read_rom(&self, address: u16) -> u8;
     fn write_rom(&mut self, address: u16, value: u8);
     fn read_ram(&self, address: u16) -> u8;
     fn write_ram(&mut self, address: u16, value: u8);
+    fn persistent_state(&self) -> PersistentState {
+        PersistentState::default()
+    }
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        if state.ram.is_empty() && state.rtc.is_empty() && state.flash.is_empty() {
+            Ok(())
+        } else {
+            Err(CartridgeError::InvalidPersistentData(
+                "该控制器没有可导入的持久化数据".to_owned(),
+            ))
+        }
+    }
+    fn tick_rtc(&mut self, _elapsed_seconds: u64) {}
 }
 
 pub struct Cartridge {
     header: CartridgeHeader,
     controller: Controller,
+    persistent_dirty: bool,
+    rtc_cycle_remainder: u64,
 }
 
 impl Cartridge {
@@ -89,7 +115,12 @@ impl Cartridge {
             }
         };
 
-        Ok(Self { header, controller })
+        Ok(Self {
+            header,
+            controller,
+            persistent_dirty: false,
+            rtc_cycle_remainder: 0,
+        })
     }
 
     pub fn header(&self) -> &CartridgeHeader {
@@ -102,6 +133,11 @@ impl Cartridge {
 
     pub fn write_rom(&mut self, address: u16, value: u8) {
         self.controller.write_rom(address, value);
+        if self.header.cartridge_type() == CartridgeType::Mbc6
+            && (0x4000..=0x7fff).contains(&address)
+        {
+            self.persistent_dirty = true;
+        }
     }
 
     pub fn read_ram(&self, address: u16) -> u8 {
@@ -110,7 +146,82 @@ impl Cartridge {
 
     pub fn write_ram(&mut self, address: u16, value: u8) {
         self.controller.write_ram(address, value);
+        if self.header.cartridge_type().features().battery
+            && (0xa000..=0xbfff).contains(&address)
+        {
+            self.persistent_dirty = true;
+        }
     }
+
+    pub fn persistent_state(&self) -> PersistentState {
+        let mut state = self.controller.persistent_state();
+        state.controller = self.header.cartridge_type().controller();
+        state
+    }
+
+    pub fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        let expected = self.header.cartridge_type().controller();
+        if state.controller != expected {
+            return Err(CartridgeError::PersistentControllerMismatch {
+                expected,
+                actual: state.controller,
+            });
+        }
+        self.controller.load_persistent_state(state)?;
+        self.persistent_dirty = false;
+        Ok(())
+    }
+
+    pub fn persistent_dirty(&self) -> bool {
+        self.persistent_dirty
+    }
+
+    pub fn clear_persistent_dirty(&mut self) {
+        self.persistent_dirty = false;
+    }
+
+    pub fn tick(&mut self, cycles: u32) {
+        const CLOCK_HZ: u64 = 4_194_304;
+        self.rtc_cycle_remainder += u64::from(cycles);
+        let elapsed_seconds = self.rtc_cycle_remainder / CLOCK_HZ;
+        self.rtc_cycle_remainder %= CLOCK_HZ;
+        self.advance_rtc(elapsed_seconds);
+    }
+
+    pub fn advance_rtc(&mut self, elapsed_seconds: u64) {
+        if elapsed_seconds == 0 || !self.header.cartridge_type().features().rtc {
+            return;
+        }
+        self.controller.tick_rtc(elapsed_seconds);
+        self.persistent_dirty = true;
+    }
+}
+
+pub(super) fn load_persistent_bytes(
+    target: &mut [u8],
+    source: &[u8],
+    section: &str,
+) -> Result<(), CartridgeError> {
+    validate_persistent_length(target.len(), source.len(), section)?;
+    target.copy_from_slice(source);
+    Ok(())
+}
+
+pub(super) fn validate_persistent_length(
+    expected: usize,
+    actual: usize,
+    section: &str,
+) -> Result<(), CartridgeError> {
+    if expected != actual {
+        return Err(CartridgeError::InvalidPersistentData(format!(
+            "{section} 长度不匹配：需要 {} 字节，实际 {} 字节",
+            expected, actual
+        )));
+    }
+    Ok(())
 }
 
 fn parse_cartridge_header(rom: &[u8]) -> Result<CartridgeHeader, CartridgeError> {
@@ -273,6 +384,52 @@ impl MemoryBankController for Controller {
             Self::Tama5(controller) => controller.write_ram(address, value),
         }
     }
+
+    fn persistent_state(&self) -> PersistentState {
+        match self {
+            Self::Camera(controller) => controller.persistent_state(),
+            Self::Huc1(controller) => controller.persistent_state(),
+            Self::Huc3(controller) => controller.persistent_state(),
+            Self::RomOnly(controller) => controller.persistent_state(),
+            Self::Mbc1(controller) => controller.persistent_state(),
+            Self::Mbc2(controller) => controller.persistent_state(),
+            Self::Mmm01(controller) => controller.persistent_state(),
+            Self::Mbc3(controller) => controller.persistent_state(),
+            Self::Mbc5(controller) => controller.persistent_state(),
+            Self::Mbc6(controller) => controller.persistent_state(),
+            Self::Mbc7(controller) => controller.persistent_state(),
+            Self::Tama5(controller) => controller.persistent_state(),
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        match self {
+            Self::Camera(controller) => controller.load_persistent_state(state),
+            Self::Huc1(controller) => controller.load_persistent_state(state),
+            Self::Huc3(controller) => controller.load_persistent_state(state),
+            Self::RomOnly(controller) => controller.load_persistent_state(state),
+            Self::Mbc1(controller) => controller.load_persistent_state(state),
+            Self::Mbc2(controller) => controller.load_persistent_state(state),
+            Self::Mmm01(controller) => controller.load_persistent_state(state),
+            Self::Mbc3(controller) => controller.load_persistent_state(state),
+            Self::Mbc5(controller) => controller.load_persistent_state(state),
+            Self::Mbc6(controller) => controller.load_persistent_state(state),
+            Self::Mbc7(controller) => controller.load_persistent_state(state),
+            Self::Tama5(controller) => controller.load_persistent_state(state),
+        }
+    }
+
+    fn tick_rtc(&mut self, elapsed_seconds: u64) {
+        match self {
+            Self::Mbc3(controller) => controller.tick_rtc(elapsed_seconds),
+            Self::Huc3(controller) => controller.tick_rtc(elapsed_seconds),
+            Self::Tama5(controller) => controller.tick_rtc(elapsed_seconds),
+            _ => {}
+        }
+    }
 }
 
 struct RomOnly {
@@ -313,6 +470,20 @@ impl MemoryBankController for RomOnly {
         if let Some(byte) = self.ram.get_mut(offset as usize) {
             *byte = value;
         }
+    }
+
+    fn persistent_state(&self) -> PersistentState {
+        PersistentState {
+            ram: self.ram.clone(),
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        load_persistent_bytes(&mut self.ram, &state.ram, "RAM")
     }
 }
 
@@ -437,6 +608,48 @@ mod tests {
         assert_eq!(cartridge.header().title(), "MMM01!");
         assert_eq!(cartridge.read_rom(0x0000), 30);
         assert_eq!(cartridge.read_rom(0x4000), 31);
+    }
+
+    fn battery_mbc1_rom() -> Vec<u8> {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x147] = 0x03;
+        rom[0x148] = 0x00;
+        rom[0x149] = 0x02;
+        rom
+    }
+
+    #[test]
+    fn persistent_ram_round_trip_tracks_and_clears_dirty_state() {
+        let mut source = Cartridge::from_bytes(battery_mbc1_rom()).expect("电池卡带应创建成功");
+        source.write_rom(0x0000, 0x0a);
+        source.write_ram(0xa123, 0x5a);
+        assert!(source.persistent_dirty());
+        let state = source.persistent_state();
+
+        let mut target = Cartridge::from_bytes(battery_mbc1_rom()).expect("电池卡带应创建成功");
+        target
+            .load_persistent_state(&state)
+            .expect("同控制器存档应加载成功");
+        target.write_rom(0x0000, 0x0a);
+
+        assert_eq!(target.read_ram(0xa123), 0x5a);
+        assert!(!target.persistent_dirty());
+    }
+
+    #[test]
+    fn rejects_persistent_state_from_another_controller() {
+        let mut cartridge =
+            Cartridge::from_bytes(battery_mbc1_rom()).expect("电池卡带应创建成功");
+        let state = PersistentState {
+            controller: ControllerKind::Mbc5,
+            ram: vec![0; 8 * 1024],
+            ..PersistentState::default()
+        };
+
+        assert!(matches!(
+            cartridge.load_persistent_state(&state),
+            Err(CartridgeError::PersistentControllerMismatch { .. })
+        ));
     }
 
     #[test]

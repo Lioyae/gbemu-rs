@@ -2,7 +2,7 @@ use thiserror::Error;
 
 use crate::{
     bus::Bus,
-    cartridge::{Cartridge, CartridgeError, CartridgeHeader},
+    cartridge::{Cartridge, CartridgeError, CartridgeHeader, PersistentState},
     cpu::{Cpu, instruction::CpuError},
     joypad::JoypadButton,
     model::{HardwareModel, ModelPreference},
@@ -66,6 +66,26 @@ impl Emulator {
 
     pub fn cartridge_header(&self) -> &CartridgeHeader {
         self.bus.cartridge_header()
+    }
+
+    pub fn cartridge_persistent_state(&self) -> PersistentState {
+        self.bus.cartridge_persistent_state()
+    }
+
+    pub fn load_cartridge_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), EmulatorError> {
+        self.bus.load_cartridge_persistent_state(state)?;
+        Ok(())
+    }
+
+    pub fn cartridge_persistent_dirty(&self) -> bool {
+        self.bus.cartridge_persistent_dirty()
+    }
+
+    pub fn clear_cartridge_persistent_dirty(&mut self) {
+        self.bus.clear_cartridge_persistent_dirty();
     }
 
     pub fn model(&self) -> HardwareModel {

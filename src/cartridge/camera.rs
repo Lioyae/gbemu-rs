@@ -1,4 +1,6 @@
-use super::MemoryBankController;
+use super::{
+    CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
+};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_BANK_SIZE: usize = 8 * 1024;
@@ -30,10 +32,12 @@ impl Camera {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn register(&self, index: usize) -> u8 {
         self.registers.get(index).copied().unwrap_or(0)
     }
 
+    #[cfg(test)]
     pub(super) fn ram(&self) -> &[u8] {
         &self.ram
     }
@@ -129,6 +133,20 @@ impl MemoryBankController for Camera {
         {
             *byte = value;
         }
+    }
+
+    fn persistent_state(&self) -> PersistentState {
+        PersistentState {
+            ram: self.ram.clone(),
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        load_persistent_bytes(&mut self.ram, &state.ram, "Camera RAM")
     }
 }
 

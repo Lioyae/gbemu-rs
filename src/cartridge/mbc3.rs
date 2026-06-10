@@ -1,4 +1,6 @@
-use super::MemoryBankController;
+use super::{
+    CartridgeError, MemoryBankController, PersistentState, validate_persistent_length,
+};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_BANK_SIZE: usize = 8 * 1024;
@@ -16,6 +18,8 @@ struct Rtc {
 }
 
 impl Rtc {
+    const PERSISTENT_SIZE: usize = 8;
+
     fn tick(&mut self, elapsed_seconds: u64) {
         if self.halted || elapsed_seconds == 0 {
             return;
@@ -64,6 +68,31 @@ impl Rtc {
                 self.carry = value & 0x80 != 0;
             }
             _ => {}
+        }
+    }
+
+    fn persistent_bytes(self) -> [u8; Self::PERSISTENT_SIZE] {
+        let [day_low, day_high] = self.days.to_le_bytes();
+        [
+            self.seconds,
+            self.minutes,
+            self.hours,
+            day_low,
+            day_high,
+            self.halted as u8,
+            self.carry as u8,
+            0,
+        ]
+    }
+
+    fn from_persistent_bytes(bytes: &[u8]) -> Self {
+        Self {
+            seconds: bytes[0] % 60,
+            minutes: bytes[1] % 60,
+            hours: bytes[2] % 24,
+            days: u16::from_le_bytes([bytes[3], bytes[4]]) & 0x01ff,
+            halted: bytes[5] != 0,
+            carry: bytes[6] != 0,
         }
     }
 }
@@ -185,6 +214,41 @@ impl MemoryBankController for Mbc3 {
             }
             _ => {}
         }
+    }
+
+    fn persistent_state(&self) -> PersistentState {
+        PersistentState {
+            ram: self.ram.clone(),
+            rtc: self
+                .has_rtc
+                .then(|| self.rtc.persistent_bytes().to_vec())
+                .unwrap_or_default(),
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        validate_persistent_length(self.ram.len(), state.ram.len(), "RAM")?;
+        let rtc_size = if self.has_rtc {
+            Rtc::PERSISTENT_SIZE
+        } else {
+            0
+        };
+        validate_persistent_length(rtc_size, state.rtc.len(), "MBC3 RTC")?;
+
+        self.ram.copy_from_slice(&state.ram);
+        if self.has_rtc {
+            self.rtc = Rtc::from_persistent_bytes(&state.rtc);
+            self.latched_rtc = self.rtc;
+        }
+        Ok(())
+    }
+
+    fn tick_rtc(&mut self, elapsed_seconds: u64) {
+        Mbc3::tick_rtc(self, elapsed_seconds);
     }
 }
 

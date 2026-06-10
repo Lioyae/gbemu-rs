@@ -1,4 +1,6 @@
-use super::MemoryBankController;
+use super::{
+    CartridgeError, MemoryBankController, PersistentState, validate_persistent_length,
+};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const REGISTER_COUNT: usize = 8;
@@ -181,6 +183,41 @@ impl MemoryBankController for Tama5 {
         if register == 7 {
             self.execute_address_write();
         }
+    }
+
+    fn persistent_state(&self) -> PersistentState {
+        let mut rtc = Vec::with_capacity(RTC_PAGE_SIZE * 4 + 1);
+        rtc.extend_from_slice(&self.rtc_timer);
+        rtc.extend_from_slice(&self.rtc_alarm);
+        rtc.extend_from_slice(&self.rtc_free_zero);
+        rtc.extend_from_slice(&self.rtc_free_one);
+        rtc.push(self.timer_disabled as u8);
+        PersistentState {
+            ram: self.eeprom.to_vec(),
+            rtc,
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        const RTC_SIZE: usize = RTC_PAGE_SIZE * 4 + 1;
+        validate_persistent_length(self.eeprom.len(), state.ram.len(), "TAMA5 EEPROM")?;
+        validate_persistent_length(RTC_SIZE, state.rtc.len(), "TAMA5 RTC")?;
+
+        self.eeprom.copy_from_slice(&state.ram);
+        self.rtc_timer.copy_from_slice(&state.rtc[0..16]);
+        self.rtc_alarm.copy_from_slice(&state.rtc[16..32]);
+        self.rtc_free_zero.copy_from_slice(&state.rtc[32..48]);
+        self.rtc_free_one.copy_from_slice(&state.rtc[48..64]);
+        self.timer_disabled = state.rtc[64] != 0;
+        Ok(())
+    }
+
+    fn tick_rtc(&mut self, elapsed_seconds: u64) {
+        Tama5::tick_rtc(self, elapsed_seconds);
     }
 }
 

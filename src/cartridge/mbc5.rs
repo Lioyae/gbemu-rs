@@ -1,4 +1,6 @@
-use super::MemoryBankController;
+use super::{
+    CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
+};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_BANK_SIZE: usize = 8 * 1024;
@@ -26,6 +28,7 @@ impl Mbc5 {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn rumble_active(&self) -> bool {
         self.rumble_active
     }
@@ -90,6 +93,20 @@ impl MemoryBankController for Mbc5 {
         {
             *byte = value;
         }
+    }
+
+    fn persistent_state(&self) -> PersistentState {
+        PersistentState {
+            ram: self.ram.clone(),
+            ..PersistentState::default()
+        }
+    }
+
+    fn load_persistent_state(
+        &mut self,
+        state: &PersistentState,
+    ) -> Result<(), CartridgeError> {
+        load_persistent_bytes(&mut self.ram, &state.ram, "RAM")
     }
 }
 

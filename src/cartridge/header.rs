@@ -59,6 +59,12 @@ pub enum ControllerKind {
     Huc1,
 }
 
+impl Default for ControllerKind {
+    fn default() -> Self {
+        Self::Rom
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CartridgeFeatures {
     pub ram: bool,
@@ -327,6 +333,13 @@ pub enum CartridgeError {
     RomLengthMismatch { actual: usize, declared: usize },
     #[error("卡带头配置无效：{0}")]
     InvalidConfiguration(String),
+    #[error("存档控制器不匹配：需要 {expected:?}，实际 {actual:?}")]
+    PersistentControllerMismatch {
+        expected: ControllerKind,
+        actual: ControllerKind,
+    },
+    #[error("持久化数据无效：{0}")]
+    InvalidPersistentData(String),
 }
 
 fn parse_cartridge_type(code: u8) -> Result<CartridgeType, CartridgeError> {
