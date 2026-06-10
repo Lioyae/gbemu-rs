@@ -225,6 +225,10 @@ impl Memory for Bus {
     fn write8(&mut self, address: u16, value: u8) {
         self.write_byte(address, value);
     }
+
+    fn tick(&mut self, cycles: u8) {
+        Bus::tick(self, u32::from(cycles));
+    }
 }
 
 #[cfg(test)]

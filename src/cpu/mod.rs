@@ -6,6 +6,21 @@ use registers::Registers;
 pub trait Memory {
     fn read8(&self, address: u16) -> u8;
     fn write8(&mut self, address: u16, value: u8);
+    fn tick(&mut self, _cycles: u8) {}
+
+    fn cpu_read8(&mut self, address: u16) -> u8 {
+        self.tick(4);
+        self.read8(address)
+    }
+
+    fn cpu_write8(&mut self, address: u16, value: u8) {
+        self.tick(4);
+        self.write8(address, value);
+    }
+
+    fn cpu_idle(&mut self) {
+        self.tick(4);
+    }
 
     fn read16(&self, address: u16) -> u16 {
         let low = self.read8(address) as u16;
@@ -26,6 +41,7 @@ pub struct Cpu {
     ime_enable_delay: u8,
     halted: bool,
     halt_bug: bool,
+    instruction_cycles: u8,
 }
 
 impl Cpu {
@@ -36,6 +52,7 @@ impl Cpu {
             ime_enable_delay: 0,
             halted: false,
             halt_bug: false,
+            instruction_cycles: 0,
         }
     }
 
@@ -55,8 +72,8 @@ impl Cpu {
         self.halted
     }
 
-    fn fetch_byte(&mut self, memory: &impl Memory) -> u8 {
-        let value = memory.read8(self.registers.pc);
+    fn fetch_byte(&mut self, memory: &mut impl Memory) -> u8 {
+        let value = self.read_bus(memory, self.registers.pc);
         if self.halt_bug {
             self.halt_bug = false;
         } else {
@@ -65,10 +82,33 @@ impl Cpu {
         value
     }
 
-    fn fetch_word(&mut self, memory: &impl Memory) -> u16 {
+    fn fetch_word(&mut self, memory: &mut impl Memory) -> u16 {
         let low = self.fetch_byte(memory) as u16;
         let high = self.fetch_byte(memory) as u16;
         low | high << 8
+    }
+
+    fn read_bus(&mut self, memory: &mut impl Memory, address: u16) -> u8 {
+        let value = memory.cpu_read8(address);
+        self.instruction_cycles += 4;
+        value
+    }
+
+    fn write_bus(&mut self, memory: &mut impl Memory, address: u16, value: u8) {
+        memory.cpu_write8(address, value);
+        self.instruction_cycles += 4;
+    }
+
+    fn idle_bus(&mut self, memory: &mut impl Memory) {
+        memory.cpu_idle();
+        self.instruction_cycles += 4;
+    }
+
+    fn finish_cycles(&mut self, memory: &mut impl Memory, expected: u8) {
+        while self.instruction_cycles < expected {
+            self.idle_bus(memory);
+        }
+        debug_assert_eq!(self.instruction_cycles, expected);
     }
 }
 
@@ -76,14 +116,23 @@ impl Cpu {
 mod tests {
     use super::*;
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum BusEvent {
+        Tick(u8),
+        Read(u16),
+        Write(u16, u8),
+    }
+
     struct TestMemory {
         bytes: [u8; 0x10000],
+        events: Vec<BusEvent>,
     }
 
     impl Default for TestMemory {
         fn default() -> Self {
             Self {
                 bytes: [0; 0x10000],
+                events: Vec::new(),
             }
         }
     }
@@ -95,6 +144,22 @@ mod tests {
 
         fn write8(&mut self, address: u16, value: u8) {
             self.bytes[address as usize] = value;
+        }
+
+        fn tick(&mut self, cycles: u8) {
+            self.events.push(BusEvent::Tick(cycles));
+        }
+
+        fn cpu_read8(&mut self, address: u16) -> u8 {
+            self.tick(4);
+            self.events.push(BusEvent::Read(address));
+            self.read8(address)
+        }
+
+        fn cpu_write8(&mut self, address: u16, value: u8) {
+            self.tick(4);
+            self.events.push(BusEvent::Write(address, value));
+            self.write8(address, value);
         }
     }
 
@@ -118,7 +183,7 @@ mod tests {
         memory.bytes[0x0100] = 0x42;
         let mut cpu = Cpu::post_boot();
 
-        let value = cpu.fetch_byte(&memory);
+        let value = cpu.fetch_byte(&mut memory);
 
         assert_eq!(value, 0x42);
         assert_eq!(cpu.registers().pc, 0x0101);
@@ -131,7 +196,7 @@ mod tests {
         memory.bytes[0x0101] = 0x12;
         let mut cpu = Cpu::post_boot();
 
-        let value = cpu.fetch_word(&memory);
+        let value = cpu.fetch_word(&mut memory);
 
         assert_eq!(value, 0x1234);
         assert_eq!(cpu.registers().pc, 0x0102);
@@ -146,6 +211,77 @@ mod tests {
         assert_eq!(memory.read8(0xc000), 0xcd);
         assert_eq!(memory.read8(0xc001), 0xab);
         assert_eq!(memory.read16(0xc000), 0xabcd);
+    }
+
+    #[test]
+    fn machine_cycle_ld_a16_sp_orders_bus_writes() {
+        let (mut cpu, mut memory) = cpu_with_program(&[0x08, 0x00, 0xc0]);
+        cpu.registers_mut().sp = 0xabcd;
+
+        assert_eq!(cpu.step(&mut memory).expect("LD (a16),SP 应执行成功"), 20);
+
+        assert_eq!(
+            memory.events,
+            [
+                BusEvent::Tick(4),
+                BusEvent::Read(0x0100),
+                BusEvent::Tick(4),
+                BusEvent::Read(0x0101),
+                BusEvent::Tick(4),
+                BusEvent::Read(0x0102),
+                BusEvent::Tick(4),
+                BusEvent::Write(0xc000, 0xcd),
+                BusEvent::Tick(4),
+                BusEvent::Write(0xc001, 0xab),
+            ]
+        );
+    }
+
+    #[test]
+    fn machine_cycle_call_waits_before_stack_writes() {
+        let (mut cpu, mut memory) = cpu_with_program(&[0xcd, 0x00, 0x02]);
+
+        assert_eq!(cpu.step(&mut memory).expect("CALL 应执行成功"), 24);
+
+        assert_eq!(
+            memory.events,
+            [
+                BusEvent::Tick(4),
+                BusEvent::Read(0x0100),
+                BusEvent::Tick(4),
+                BusEvent::Read(0x0101),
+                BusEvent::Tick(4),
+                BusEvent::Read(0x0102),
+                BusEvent::Tick(4),
+                BusEvent::Tick(4),
+                BusEvent::Write(0xfffd, 0x01),
+                BusEvent::Tick(4),
+                BusEvent::Write(0xfffc, 0x03),
+            ]
+        );
+    }
+
+    #[test]
+    fn machine_cycle_interrupt_service_uses_five_cycles() {
+        let (mut cpu, mut memory) = cpu_with_program(&[0x00]);
+        cpu.ime = true;
+        memory.write8(0xffff, 0x01);
+        memory.write8(0xff0f, 0x01);
+
+        assert_eq!(cpu.step(&mut memory).expect("中断应处理成功"), 20);
+
+        assert_eq!(
+            memory.events,
+            [
+                BusEvent::Tick(4),
+                BusEvent::Tick(4),
+                BusEvent::Tick(4),
+                BusEvent::Write(0xfffd, 0x01),
+                BusEvent::Tick(4),
+                BusEvent::Write(0xfffc, 0x00),
+                BusEvent::Tick(4),
+            ]
+        );
     }
 
     fn cpu_with_program(program: &[u8]) -> (Cpu, TestMemory) {

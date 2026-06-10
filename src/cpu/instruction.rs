@@ -10,21 +10,26 @@ pub enum CpuError {
 
 impl Cpu {
     pub fn step<M: Memory>(&mut self, memory: &mut M) -> Result<u8, CpuError> {
+        self.instruction_cycles = 0;
         let pending = self.pending_interrupts(memory);
         if self.halted {
             if pending == 0 {
+                self.idle_bus(memory);
                 return Ok(4);
             }
             self.halted = false;
         }
 
         if self.ime && pending != 0 {
-            return Ok(self.service_interrupt(memory, pending));
+            let cycles = self.service_interrupt(memory, pending);
+            self.finish_cycles(memory, cycles);
+            return Ok(cycles);
         }
 
         let opcode = self.fetch_byte(memory);
         let cycles = self.execute_base(memory, opcode)?;
         self.advance_ime_delay();
+        self.finish_cycles(memory, cycles);
         Ok(cycles)
     }
 
@@ -61,22 +66,22 @@ impl Cpu {
                 Ok(12)
             }
             0x02 => {
-                memory.write8(self.registers.bc(), self.registers.a);
+                self.write_bus(memory, self.registers.bc(), self.registers.a);
                 Ok(8)
             }
             0x12 => {
-                memory.write8(self.registers.de(), self.registers.a);
+                self.write_bus(memory, self.registers.de(), self.registers.a);
                 Ok(8)
             }
             0x22 => {
                 let address = self.registers.hl();
-                memory.write8(address, self.registers.a);
+                self.write_bus(memory, address, self.registers.a);
                 self.registers.set_hl(address.wrapping_add(1));
                 Ok(8)
             }
             0x32 => {
                 let address = self.registers.hl();
-                memory.write8(address, self.registers.a);
+                self.write_bus(memory, address, self.registers.a);
                 self.registers.set_hl(address.wrapping_sub(1));
                 Ok(8)
             }
@@ -114,7 +119,12 @@ impl Cpu {
             }
             0x08 => {
                 let address = self.fetch_word(memory);
-                memory.write16(address, self.registers.sp);
+                self.write_bus(memory, address, self.registers.sp as u8);
+                self.write_bus(
+                    memory,
+                    address.wrapping_add(1),
+                    (self.registers.sp >> 8) as u8,
+                );
                 Ok(20)
             }
             opcode if opcode <= 0x39 && opcode & 0x0f == 0x09 => {
@@ -123,22 +133,22 @@ impl Cpu {
                 Ok(8)
             }
             0x0a => {
-                self.registers.a = memory.read8(self.registers.bc());
+                self.registers.a = self.read_bus(memory, self.registers.bc());
                 Ok(8)
             }
             0x1a => {
-                self.registers.a = memory.read8(self.registers.de());
+                self.registers.a = self.read_bus(memory, self.registers.de());
                 Ok(8)
             }
             0x2a => {
                 let address = self.registers.hl();
-                self.registers.a = memory.read8(address);
+                self.registers.a = self.read_bus(memory, address);
                 self.registers.set_hl(address.wrapping_add(1));
                 Ok(8)
             }
             0x3a => {
                 let address = self.registers.hl();
-                self.registers.a = memory.read8(address);
+                self.registers.a = self.read_bus(memory, address);
                 self.registers.set_hl(address.wrapping_sub(1));
                 Ok(8)
             }
@@ -155,7 +165,7 @@ impl Cpu {
                 Ok(4)
             }
             0x10 => {
-                self.fetch_byte(memory);
+                self.registers.pc = self.registers.pc.wrapping_add(1);
                 self.halted = true;
                 Ok(4)
             }
@@ -211,6 +221,7 @@ impl Cpu {
             }
             0xc0 | 0xc8 | 0xd0 | 0xd8 => {
                 if self.condition((opcode >> 3) & 0x03) {
+                    self.idle_bus(memory);
                     self.registers.pc = self.pop(memory);
                     Ok(20)
                 } else {
@@ -238,6 +249,7 @@ impl Cpu {
             0xc4 | 0xcc | 0xd4 | 0xdc => {
                 let address = self.fetch_word(memory);
                 if self.condition((opcode >> 3) & 0x03) {
+                    self.idle_bus(memory);
                     self.push(memory, self.registers.pc);
                     self.registers.pc = address;
                     Ok(24)
@@ -247,6 +259,7 @@ impl Cpu {
             }
             0xc5 | 0xd5 | 0xe5 | 0xf5 => {
                 let value = self.read_stack_pair((opcode >> 4) & 0x03);
+                self.idle_bus(memory);
                 self.push(memory, value);
                 Ok(16)
             }
@@ -256,6 +269,7 @@ impl Cpu {
                 Ok(8)
             }
             0xc7 | 0xcf | 0xd7 | 0xdf | 0xe7 | 0xef | 0xf7 | 0xff => {
+                self.idle_bus(memory);
                 self.push(memory, self.registers.pc);
                 self.registers.pc = (opcode & 0x38) as u16;
                 Ok(16)
@@ -270,6 +284,7 @@ impl Cpu {
             }
             0xcd => {
                 let address = self.fetch_word(memory);
+                self.idle_bus(memory);
                 self.push(memory, self.registers.pc);
                 self.registers.pc = address;
                 Ok(24)
@@ -282,11 +297,11 @@ impl Cpu {
             }
             0xe0 => {
                 let address = 0xff00 | self.fetch_byte(memory) as u16;
-                memory.write8(address, self.registers.a);
+                self.write_bus(memory, address, self.registers.a);
                 Ok(12)
             }
             0xe2 => {
-                memory.write8(0xff00 | self.registers.c as u16, self.registers.a);
+                self.write_bus(memory, 0xff00 | self.registers.c as u16, self.registers.a);
                 Ok(8)
             }
             0xe8 => {
@@ -300,16 +315,16 @@ impl Cpu {
             }
             0xea => {
                 let address = self.fetch_word(memory);
-                memory.write8(address, self.registers.a);
+                self.write_bus(memory, address, self.registers.a);
                 Ok(16)
             }
             0xf0 => {
                 let address = 0xff00 | self.fetch_byte(memory) as u16;
-                self.registers.a = memory.read8(address);
+                self.registers.a = self.read_bus(memory, address);
                 Ok(12)
             }
             0xf2 => {
-                self.registers.a = memory.read8(0xff00 | self.registers.c as u16);
+                self.registers.a = self.read_bus(memory, 0xff00 | self.registers.c as u16);
                 Ok(8)
             }
             0xf3 => {
@@ -329,7 +344,7 @@ impl Cpu {
             }
             0xfa => {
                 let address = self.fetch_word(memory);
-                self.registers.a = memory.read8(address);
+                self.registers.a = self.read_bus(memory, address);
                 Ok(16)
             }
             0xfb => {
@@ -340,7 +355,7 @@ impl Cpu {
         }
     }
 
-    fn read_r8<M: Memory>(&self, memory: &M, index: u8) -> u8 {
+    fn read_r8<M: Memory>(&mut self, memory: &mut M, index: u8) -> u8 {
         match index {
             0 => self.registers.b,
             1 => self.registers.c,
@@ -348,7 +363,7 @@ impl Cpu {
             3 => self.registers.e,
             4 => self.registers.h,
             5 => self.registers.l,
-            6 => memory.read8(self.registers.hl()),
+            6 => self.read_bus(memory, self.registers.hl()),
             7 => self.registers.a,
             _ => unreachable!("8 位寄存器索引始终为 0..=7"),
         }
@@ -362,7 +377,7 @@ impl Cpu {
             3 => self.registers.e = value,
             4 => self.registers.h = value,
             5 => self.registers.l = value,
-            6 => memory.write8(self.registers.hl(), value),
+            6 => self.write_bus(memory, self.registers.hl(), value),
             7 => self.registers.a = value,
             _ => unreachable!("8 位寄存器索引始终为 0..=7"),
         }
@@ -555,20 +570,24 @@ impl Cpu {
         }
     }
 
-    fn jump_relative<M: Memory>(&mut self, memory: &M) {
+    fn jump_relative<M: Memory>(&mut self, memory: &mut M) {
         let offset = self.fetch_byte(memory) as i8;
         self.registers.pc = self.registers.pc.wrapping_add_signed(offset as i16);
     }
 
     fn push<M: Memory>(&mut self, memory: &mut M, value: u16) {
-        self.registers.sp = self.registers.sp.wrapping_sub(2);
-        memory.write16(self.registers.sp, value);
+        self.registers.sp = self.registers.sp.wrapping_sub(1);
+        self.write_bus(memory, self.registers.sp, (value >> 8) as u8);
+        self.registers.sp = self.registers.sp.wrapping_sub(1);
+        self.write_bus(memory, self.registers.sp, value as u8);
     }
 
-    fn pop<M: Memory>(&mut self, memory: &M) -> u16 {
-        let value = memory.read16(self.registers.sp);
-        self.registers.sp = self.registers.sp.wrapping_add(2);
-        value
+    fn pop<M: Memory>(&mut self, memory: &mut M) -> u16 {
+        let low = self.read_bus(memory, self.registers.sp) as u16;
+        self.registers.sp = self.registers.sp.wrapping_add(1);
+        let high = self.read_bus(memory, self.registers.sp) as u16;
+        self.registers.sp = self.registers.sp.wrapping_add(1);
+        low | high << 8
     }
 
     fn advance_ime_delay(&mut self) {
@@ -639,6 +658,8 @@ impl Cpu {
         self.ime = false;
         self.ime_enable_delay = 0;
         self.halted = false;
+        self.idle_bus(memory);
+        self.idle_bus(memory);
         self.push(memory, self.registers.pc);
         self.registers.pc = match index {
             0 => 0x0040,
@@ -648,6 +669,7 @@ impl Cpu {
             4 => 0x0060,
             _ => unreachable!("中断索引始终为 0..=4"),
         };
+        self.idle_bus(memory);
         20
     }
 }

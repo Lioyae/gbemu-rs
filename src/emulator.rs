@@ -61,7 +61,6 @@ impl Emulator {
 
     pub fn step_instruction(&mut self) -> Result<u8, EmulatorError> {
         let cycles = self.cpu.step(&mut self.bus)?;
-        self.bus.tick(u32::from(cycles));
         Ok(cycles)
     }
 
