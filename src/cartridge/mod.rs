@@ -3,7 +3,9 @@ mod mbc1;
 
 use mbc1::Mbc1;
 
-pub use header::{CartridgeError, CartridgeHeader, CartridgeType};
+pub use header::{
+    CartridgeError, CartridgeFeatures, CartridgeHeader, CartridgeType, CgbSupport, ControllerKind,
+};
 
 pub trait MemoryBankController {
     fn read_rom(&self, address: u16) -> u8;
@@ -27,6 +29,9 @@ impl Cartridge {
             CartridgeType::RomOnly => Controller::RomOnly(RomOnly { rom }),
             CartridgeType::Mbc1 | CartridgeType::Mbc1Ram | CartridgeType::Mbc1RamBattery => {
                 Controller::Mbc1(Mbc1::new(rom, header.ram_size()))
+            }
+            cartridge_type => {
+                return Err(CartridgeError::ControllerNotImplemented(cartridge_type));
             }
         };
 
@@ -76,6 +81,7 @@ fn validate_configuration(header: &CartridgeHeader) -> Result<(), CartridgeError
                 return invalid("MBC1 最多支持 32 KiB 外部 RAM");
             }
         }
+        _ => return Ok(()),
     }
 
     if matches!(
