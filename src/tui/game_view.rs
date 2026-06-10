@@ -39,12 +39,17 @@ pub fn render(frame: &mut Frame, app: &App) {
         "运行中"
     };
     frame.render_widget(
-        Paragraph::new(format!("{state}  FPS: {:.1}", app.fps())).alignment(Alignment::Center),
+        Paragraph::new(format!(
+            "{state}  FPS: {:.1}  {}",
+            app.fps(),
+            app.status_message()
+        ))
+        .alignment(Alignment::Center),
         vertical[1],
     );
     frame.render_widget(
         Paragraph::new(
-            "方向键: 十字键  Z:B  X:A  Enter:Start  Backspace:Select  Tab:调试  Space:暂停  Q:退出",
+            "方向键: 十字键  Z:B  X:A  Enter:Start  Backspace:Select  Ctrl+S:保存  Ctrl+L:加载  Q:退出",
         )
         .alignment(Alignment::Center),
         vertical[2],

@@ -117,14 +117,17 @@ pub fn render(frame: &mut Frame, app: &App) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{state}  ROM: {}  FPS: {:.1}",
+            "{state}  ROM: {}  FPS: {:.1}  {}",
             app.emulator().cartridge_header().title(),
-            app.fps()
+            app.fps(),
+            app.status_message()
         )),
         vertical[1],
     );
     frame.render_widget(
-        Paragraph::new("Tab:游戏  Space:暂停/继续  N:单步  PageUp/PageDown:内存翻页  Q/Esc:退出"),
+        Paragraph::new(
+            "Tab:游戏  Space:暂停/继续  N:单步  Ctrl+S:保存  Ctrl+L:加载  Q/Esc:退出",
+        ),
         vertical[2],
     );
 }

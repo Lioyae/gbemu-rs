@@ -17,5 +17,5 @@ fn main() -> Result<()> {
         fs::read(&cli.rom).with_context(|| format!("无法读取 ROM 文件：{}", cli.rom.display()))?;
     let emulator =
         Emulator::from_rom(rom).with_context(|| format!("无法加载卡带：{}", cli.rom.display()))?;
-    tui::run(emulator)
+    tui::run(emulator, cli.rom)
 }

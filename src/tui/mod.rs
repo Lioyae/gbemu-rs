@@ -1,8 +1,10 @@
 pub mod debug_view;
+pub mod dialog;
 pub mod game_view;
 
 use std::{
     io::{self, Stdout},
+    path::PathBuf,
     time::{Duration, Instant},
 };
 
@@ -37,12 +39,12 @@ pub enum TuiError {
     },
 }
 
-pub fn run(emulator: Emulator) -> Result<()> {
+pub fn run(emulator: Emulator, rom_path: PathBuf) -> Result<()> {
     let _guard = TerminalGuard::enter().context("无法初始化终端")?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend).context("无法创建终端绘制后端")?;
     terminal.clear().context("无法清空终端")?;
-    let mut app = App::new(emulator);
+    let mut app = App::with_rom_path(emulator, rom_path);
 
     while !app.should_quit() {
         let frame_started = Instant::now();
@@ -53,9 +55,12 @@ pub fn run(emulator: Emulator) -> Result<()> {
         let size = terminal.size().context("无法读取终端尺寸")?;
         validate_size(size.width, size.height, app.mode())?;
         terminal
-            .draw(|frame| match app.mode() {
-                ViewMode::Game => game_view::render(frame, &app),
-                ViewMode::Debugger => debug_view::render(frame, &app),
+            .draw(|frame| {
+                match app.mode() {
+                    ViewMode::Game => game_view::render(frame, &app),
+                    ViewMode::Debugger => debug_view::render(frame, &app),
+                }
+                dialog::render(frame, &app);
             })
             .context("终端绘制失败")?;
 

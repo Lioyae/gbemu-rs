@@ -1,11 +1,16 @@
-use std::time::{Duration, Instant};
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use thiserror::Error;
 
 use crate::{
     debugger::{DebugSnapshot, Debugger},
     emulator::{Emulator, EmulatorError},
     joypad::JoypadButton,
+    save::{BatterySave, SaveError},
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -15,10 +20,28 @@ pub enum ViewMode {
     Debugger,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ExitConfirmation {
+    #[default]
+    None,
+    Pending,
+}
+
+#[derive(Debug, Error)]
+pub enum AppError {
+    #[error(transparent)]
+    Emulator(#[from] EmulatorError),
+    #[error(transparent)]
+    Save(#[from] SaveError),
+}
+
 pub struct App {
     emulator: Emulator,
+    rom_path: Option<PathBuf>,
     mode: ViewMode,
     should_quit: bool,
+    exit_confirmation: ExitConfirmation,
+    status_message: String,
     memory_start: u16,
     fps: f64,
     frames_since_measurement: u32,
@@ -29,13 +52,22 @@ impl App {
     pub fn new(emulator: Emulator) -> Self {
         Self {
             emulator,
+            rom_path: None,
             mode: ViewMode::Game,
             should_quit: false,
+            exit_confirmation: ExitConfirmation::None,
+            status_message: "未执行存档操作".to_owned(),
             memory_start: 0xc000,
             fps: 0.0,
             frames_since_measurement: 0,
             measurement_started: Instant::now(),
         }
+    }
+
+    pub fn with_rom_path(emulator: Emulator, rom_path: PathBuf) -> Self {
+        let mut app = Self::new(emulator);
+        app.rom_path = Some(rom_path);
+        app
     }
 
     pub fn emulator(&self) -> &Emulator {
@@ -54,6 +86,14 @@ impl App {
         self.should_quit
     }
 
+    pub fn exit_confirmation(&self) -> ExitConfirmation {
+        self.exit_confirmation
+    }
+
+    pub fn status_message(&self) -> &str {
+        &self.status_message
+    }
+
     pub fn memory_start(&self) -> u16 {
         self.memory_start
     }
@@ -62,7 +102,7 @@ impl App {
         self.fps
     }
 
-    pub fn update(&mut self) -> Result<(), EmulatorError> {
+    pub fn update(&mut self) -> Result<(), AppError> {
         let result = self.emulator.run_until_frame(80_000)?;
         if result.frame_ready {
             self.frames_since_measurement += 1;
@@ -76,7 +116,30 @@ impl App {
         Ok(())
     }
 
-    pub fn handle_key(&mut self, event: KeyEvent) -> Result<(), EmulatorError> {
+    pub fn handle_key(&mut self, event: KeyEvent) -> Result<(), AppError> {
+        if self.exit_confirmation == ExitConfirmation::Pending {
+            if event.kind == KeyEventKind::Release {
+                return Ok(());
+            }
+            return self.handle_exit_confirmation(event.code);
+        }
+
+        if event.kind != KeyEventKind::Release
+            && event.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            match event.code {
+                KeyCode::Char('s' | 'S') => {
+                    self.save_battery()?;
+                    return Ok(());
+                }
+                KeyCode::Char('l' | 'L') => {
+                    self.load_battery()?;
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
         if let Some(button) = map_game_key(event.code) {
             match event.kind {
                 KeyEventKind::Press | KeyEventKind::Repeat => {
@@ -91,7 +154,7 @@ impl App {
             return Ok(());
         }
         match event.code {
-            KeyCode::Char('q' | 'Q') | KeyCode::Esc => self.should_quit = true,
+            KeyCode::Char('q' | 'Q') | KeyCode::Esc => self.request_quit(),
             KeyCode::Tab => {
                 self.mode = match self.mode {
                     ViewMode::Game => ViewMode::Debugger,
@@ -109,6 +172,52 @@ impl App {
             KeyCode::PageDown => self.memory_start = self.memory_start.wrapping_add(0x0100),
             _ => {}
         }
+        Ok(())
+    }
+
+    fn request_quit(&mut self) {
+        if self.emulator.cartridge_persistent_dirty() && self.rom_path.is_some() {
+            self.exit_confirmation = ExitConfirmation::Pending;
+        } else {
+            self.should_quit = true;
+        }
+    }
+
+    fn handle_exit_confirmation(&mut self, code: KeyCode) -> Result<(), AppError> {
+        match code {
+            KeyCode::Char('s' | 'S') => {
+                self.save_battery()?;
+                self.should_quit = true;
+                self.exit_confirmation = ExitConfirmation::None;
+            }
+            KeyCode::Char('d' | 'D') => {
+                self.should_quit = true;
+                self.exit_confirmation = ExitConfirmation::None;
+            }
+            KeyCode::Esc | KeyCode::Char('c' | 'C') => {
+                self.exit_confirmation = ExitConfirmation::None;
+                self.status_message = "已取消退出".to_owned();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn rom_path(&self) -> Result<&Path, SaveError> {
+        self.rom_path.as_deref().ok_or(SaveError::MissingRomPath)
+    }
+
+    fn save_battery(&mut self) -> Result<(), AppError> {
+        let rom_path = self.rom_path()?.to_owned();
+        BatterySave::save(&mut self.emulator, &rom_path)?;
+        self.status_message = format!("存档已保存：{}", rom_path.with_extension("sav").display());
+        Ok(())
+    }
+
+    fn load_battery(&mut self) -> Result<(), AppError> {
+        let rom_path = self.rom_path()?.to_owned();
+        BatterySave::load(&mut self.emulator, &rom_path)?;
+        self.status_message = format!("存档已加载：{}", rom_path.with_extension("sav").display());
         Ok(())
     }
 
@@ -149,6 +258,10 @@ mod tests {
 
     fn key(code: KeyCode, kind: KeyEventKind) -> KeyEvent {
         KeyEvent::new_with_kind(code, KeyModifiers::NONE, kind)
+    }
+
+    fn control_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new_with_kind(code, KeyModifiers::CONTROL, KeyEventKind::Press)
     }
 
     #[test]
@@ -216,5 +329,58 @@ mod tests {
                 .expect("退出键应处理成功");
             assert!(app.should_quit());
         }
+    }
+
+    fn battery_app(rom_path: PathBuf) -> App {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x147] = 0x03;
+        rom[0x148] = 0x00;
+        rom[0x149] = 0x02;
+        App::with_rom_path(
+            Emulator::from_rom(rom).expect("电池 ROM 应加载成功"),
+            rom_path,
+        )
+    }
+
+    #[test]
+    fn control_s_and_control_l_save_and_restore_battery_ram() {
+        let directory = std::env::temp_dir().join(format!(
+            "gbmeu-app-save-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).expect("临时目录应创建成功");
+        let rom_path = directory.join("game.gb");
+        let mut app = battery_app(rom_path);
+        app.emulator_mut().write_memory(0x0000, 0x0a);
+        app.emulator_mut().write_memory(0xa000, 0x5a);
+        app.handle_key(control_key(KeyCode::Char('s')))
+            .expect("Ctrl+S 应保存成功");
+
+        app.emulator_mut().write_memory(0xa000, 0x11);
+        app.handle_key(control_key(KeyCode::Char('l')))
+            .expect("Ctrl+L 应加载成功");
+        assert_eq!(app.emulator().read_memory(0xa000), 0x5a);
+
+        std::fs::remove_dir_all(directory).expect("临时目录应清理成功");
+    }
+
+    #[test]
+    fn dirty_exit_supports_cancel_and_discard() {
+        let mut app = battery_app(PathBuf::from("game.gb"));
+        app.emulator_mut().write_memory(0xa000, 0x5a);
+        app.handle_key(key(KeyCode::Char('q'), KeyEventKind::Press))
+            .expect("退出请求应成功");
+        assert_eq!(app.exit_confirmation(), ExitConfirmation::Pending);
+        assert!(!app.should_quit());
+
+        app.handle_key(key(KeyCode::Esc, KeyEventKind::Press))
+            .expect("取消退出应成功");
+        assert_eq!(app.exit_confirmation(), ExitConfirmation::None);
+
+        app.handle_key(key(KeyCode::Char('q'), KeyEventKind::Press))
+            .expect("退出请求应成功");
+        app.handle_key(key(KeyCode::Char('d'), KeyEventKind::Press))
+            .expect("放弃存档应成功");
+        assert!(app.should_quit());
     }
 }

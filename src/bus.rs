@@ -148,6 +148,10 @@ impl Bus {
         self.cartridge.clear_persistent_dirty();
     }
 
+    pub fn advance_cartridge_rtc(&mut self, elapsed_seconds: u64) {
+        self.cartridge.advance_rtc(elapsed_seconds);
+    }
+
     pub fn model(&self) -> HardwareModel {
         self.model
     }

@@ -88,6 +88,10 @@ impl Emulator {
         self.bus.clear_cartridge_persistent_dirty();
     }
 
+    pub fn advance_cartridge_rtc(&mut self, elapsed_seconds: u64) {
+        self.bus.advance_cartridge_rtc(elapsed_seconds);
+    }
+
     pub fn model(&self) -> HardwareModel {
         self.model
     }
