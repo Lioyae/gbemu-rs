@@ -1,43 +1,47 @@
 # gbmeu-rs
 
-`gbmeu-rs` 是一个使用 Rust 编写、运行于终端中的 Nintendo Game Boy DMG 模拟器。
-界面基于 Ratatui 和 Crossterm，提供游戏画面与基础调试器两种模式。
+`gbmeu-rs` 是一个使用 Rust 编写、运行于终端中的 Nintendo Game Boy 与
+Game Boy Color 模拟器。界面基于 Ratatui 和 Crossterm，提供 ROM 启动器、
+游戏画面和基础调试器。
 
-项目当前处于开发阶段。核心模块已有自动化测试，并已接入 Blargg CPU 指令测试、
-内存时序测试、dmg-acid2 冒烟测试和 MBC1 游戏冒烟测试。
+项目仍处于开发阶段。目前已经覆盖主要 CPU、内存、PPU、卡带控制器和电池存档流程，
+但尚未实现音频、即时存档和 Boot ROM 启动。
 
 ## 当前功能
 
 - LR35902 基础指令集与全部 CB 扩展指令。
-- CPU 标志位、中断、EI 延迟、HALT 和 HALT bug。
-- DMG 内存映射、Echo RAM、HRAM、IF/IE 和 OAM DMA。
+- CPU 标志位、中断、EI 延迟、HALT、HALT bug、STOP 和 CGB 双速切换。
+- DMG/CGB 内存映射、CGB WRAM/VRAM 分 bank、Echo RAM、HRAM、IF/IE。
+- OAM DMA、CGB GDMA 与 HBlank DMA。
 - DIV、TIMA、TMA、TAC 及定时器中断。
 - 八个 Game Boy 按键与 Joypad 中断。
-- ROM-only 卡带。
-- MBC1 ROM/RAM 存储体切换。
-- DMG PPU LCD 模式、VBlank、STAT、LY/LYC。
-- 背景、窗口、8×8/8×16 精灵和四级灰度帧缓冲。
-- TUI 游戏模式。
-- CPU 寄存器、标志位、反汇编和内存查看调试模式。
+- DMG 灰度渲染和 CGB 15 位彩色背景、窗口、精灵与调色板。
+- 自动根据卡带头选择 DMG 或 CGB 模式。
+- TUI ROM 库、递归目录扫描和文件浏览器。
+- TUI 游戏模式以及寄存器、反汇编、内存查看调试模式。
 - 暂停、继续和单指令步进。
+- 手动电池存档、RTC/Flash 持久化和未保存退出确认。
 - 无界面串口测试 ROM 运行工具。
 
-## 尚未支持
+## 卡带支持
 
-- 音频输出和完整 APU 行为。
-- Game Boy Color。
-- MBC2、MBC3、MBC5 等其他卡带控制器。
-- MBC1 电池 RAM 持久化。
-- DMG Boot ROM 启动过程。
-- 存档状态、倒带、作弊和联机线。
-- 调试断点、监视点和执行历史。
+能够识别 Game Boy 官方卡带头中定义的全部 28 种卡带类型，并为以下控制器提供实现：
 
-PPU 当前使用固定的 Mode 3 周期模型，未模拟像素 FIFO 导致的细粒度时序变化。
+- ROM、ROM+RAM。
+- MBC1、MBC2、MBC3、MBC5。
+- MMM01、MBC6、MBC7。
+- Pocket Camera、Bandai TAMA5。
+- HuC1、HuC3。
+
+MBC3、TAMA5 和 HuC3 包含 RTC 持久化；MBC6 包含 Flash 持久化；MBC7 包含
+EEPROM 协议。摄像头、红外、倾斜传感器和震动等依赖真实外设的能力目前使用稳定的
+兼容占位行为，不会访问主机硬件。
 
 ## 环境要求
 
 - Rust 1.85 或更高版本。
 - 支持真彩色和 Unicode 上半块字符的终端。
+- ROM 启动器终端至少为 `100×24`。
 - 游戏模式终端至少为 `162×76`。
 - 调试模式终端至少为 `120×36`。
 
@@ -55,21 +59,44 @@ cargo build --release
 target/release/gbmeu.exe
 ```
 
-## 运行
+## 启动 ROM
+
+不带参数运行时进入 TUI ROM 启动器：
 
 ```powershell
-cargo run --release -- path/to/game.gb
+cargo run --release
 ```
 
-也可以直接运行：
+也可以从命令行直接指定 `.gb` 或 `.gbc` 文件，并跳过启动器：
 
 ```powershell
+cargo run --release -- path/to/game.gbc
 target/release/gbmeu.exe path/to/game.gb
 ```
 
+Windows 下可以直接双击 `gbmeu.exe` 进入启动器。首次启动时，如果程序当前目录存在
+`roms/`，会自动将其加入 ROM 库。启动器配置保存在操作系统的用户配置目录中。
+
 程序不会附带任何游戏 ROM 或 Boot ROM。请仅使用自己合法持有并有权使用的 ROM。
 
-## 控制方式
+## 启动器控制
+
+| 按键 | 功能 |
+| --- | --- |
+| `↑` / `↓` | 移动选择 |
+| `Enter` | 启动 ROM，或在文件浏览器中打开目录 |
+| `F2` / `Tab` | 在 ROM 库与文件浏览器之间切换 |
+| `R` | 重新扫描 ROM 库 |
+| `Backspace` | 文件浏览器中返回上级目录 |
+| `A` | 将文件浏览器当前目录加入 ROM 库 |
+| `D` | 从 ROM 库移除文件浏览器当前目录 |
+| `Esc` | 从文件浏览器返回 ROM 库 |
+| `Q` / `Esc` | 在 ROM 库中退出 |
+
+ROM 库会递归扫描所有已配置目录中的 `.gb` 和 `.gbc` 文件。单个损坏 ROM 不会阻止
+其他文件显示。
+
+## 游戏与调试控制
 
 | 主机按键 | Game Boy / 程序功能 |
 | --- | --- |
@@ -78,12 +105,18 @@ target/release/gbmeu.exe path/to/game.gb
 | `X` | A |
 | `Enter` | Start |
 | `Backspace` | Select |
+| `Ctrl+S` | 将卡带持久数据写入磁盘 |
+| `Ctrl+L` | 从磁盘重新加载卡带持久数据 |
 | `Tab` | 切换游戏/调试模式 |
 | `Space` | 暂停或继续 |
 | `N` | 暂停时执行一条指令 |
 | `PageUp` | 调试内存窗口向前移动 `0x100` 字节 |
 | `PageDown` | 调试内存窗口向后移动 `0x100` 字节 |
-| `Q` 或 `Esc` | 退出 |
+| `Q` / `Esc` | 请求退出 |
+
+存在未保存的卡带数据时，退出会要求选择保存、放弃或取消。电池 RAM、EEPROM 和 Flash
+写入 ROM 同目录、同文件名的 `.sav` 文件；RTC 数据写入 `.rtc` 文件。保存过程使用
+同目录临时文件和备份替换，加载时会先完整校验再修改模拟器状态。
 
 ## 调试模式
 
@@ -92,7 +125,7 @@ target/release/gbmeu.exe path/to/game.gb
 - AF、BC、DE、HL、SP 和 PC。
 - Z、N、H、C 标志位。
 - IME、HALT、IE 和 IF。
-- 当前 LCD 模式与 LY。
+- 当前硬件模式、CPU 速度、LCD 模式与 LY。
 - 从当前 PC 开始的反汇编。
 - 可翻页的 128 字节内存窗口。
 
@@ -108,9 +141,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
 ```
 
-外部测试 ROM 不会提交到仓库。当前集成测试从 `roms/` 读取文件。
-
-放置后可分别运行 CPU、内存时序和画面冒烟测试：
+外部测试 ROM 不会提交到仓库。当前集成测试从 `roms/` 读取文件。放置对应文件后可运行：
 
 ```powershell
 cargo test --test rom_tests provided_cpu_instrs -- --ignored --nocapture --exact
@@ -119,29 +150,25 @@ cargo test --test rom_tests provided_dmg_acid2_smoke -- --ignored --nocapture --
 cargo test --test rom_tests provided_mbc1_game_smoke -- --ignored --nocapture --exact
 ```
 
-11 个独立 CPU 指令 ROM 可分组运行：
-
-```powershell
-cargo test --test rom_tests provided_0 -- --ignored --nocapture
-cargo test --test rom_tests provided_1 -- --ignored --nocapture
-```
-
-`mem_timing` 当前会以非零状态退出，这是用于跟踪总线时序缺口的预期结果。未显式运行时，
-这些外部 ROM 测试保持 `ignored`，不会影响默认测试。
+当前提供的 Blargg `cpu_instrs` 11 个独立测试和 `mem_timing` 3 个测试均已通过。
+`dmg-acid2` 与 MBC1 游戏测试目前执行无界面冒烟验证，仍需人工检查最终画面和可玩性。
 
 ## 项目结构
 
 ```text
 src/
-  cartridge/    ROM 头、ROM-only 和 MBC1
+  cartridge/    卡带头、控制器、RTC、EEPROM 和 Flash
   cpu/          寄存器、指令执行和中断
-  ppu/          LCD 时序、渲染和帧缓冲
-  tui/          游戏与调试界面
-  app.rs        输入和应用状态
-  bus.rs        DMG 地址空间与设备路由
+  ppu/          DMG/CGB LCD 时序、渲染和帧缓冲
+  save/         卡带持久数据文件
+  tui/          ROM 启动器、游戏、调试和对话框
+  app.rs        游戏输入、存档和应用状态
+  bus.rs        DMG/CGB 地址空间与设备路由
   debugger.rs   调试快照和反汇编
-  emulator.rs   CPU 与硬件周期协调
+  emulator.rs   CPU 与硬件机器周期协调
   joypad.rs     按键矩阵
+  library.rs    多目录 ROM 库
+  model.rs      DMG/CGB 模式选择
   timer.rs      DIV/TIMA/TMA/TAC
 ```
 
@@ -149,12 +176,10 @@ src/
 
 ## 已知限制
 
-- Blargg `cpu_instrs.gb` 及 11 个独立 CPU 指令 ROM 已通过。
-- Blargg `mem_timing.gb` 尚未通过；当前 CPU 在整条指令执行后统一推进硬件周期，
-  还不能表达每个机器周期上的总线读写时序。
-- `dmg-acid2.gb` 和 MBC1 游戏 `zg.gb` 已通过无界面运行冒烟测试，但仍需人工确认画面和可玩性。
-- PPU 时序为扫描线级近似，依赖精确像素 FIFO 行为的程序可能显示异常。
-- STOP、DMA 总线争用、定时器边界和部分中断时序仍可能需要更多测试 ROM 校正。
-- 不产生声音。
-- MBC1 电池存档不会写入磁盘。
-
+- 尚未实现 APU 和音频输出。
+- 尚未实现即时存档槽、倒带、作弊和联机线。
+- 尚未支持可选 DMG/CGB Boot ROM，CPU 从跳过 Boot ROM 的初始状态启动。
+- PPU 使用固定 Mode 3 周期模型，未实现逐点像素 FIFO 和全部总线争用细节。
+- GDMA/HDMA 的传输与 CPU 暂停时序仍是近似模型。
+- Pocket Camera、红外、倾斜传感器和震动没有接入真实主机设备。
+- 调试器尚无断点、监视点和执行历史。

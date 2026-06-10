@@ -1,4 +1,4 @@
-//! Game Boy DMG 模拟器核心库。
+//! Game Boy 与 Game Boy Color 模拟器核心库。
 
 pub mod app;
 pub mod bus;

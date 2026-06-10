@@ -5,7 +5,11 @@ use clap::Parser;
 use gbmeu::{emulator::Emulator, tui};
 
 #[derive(Debug, Parser)]
-#[command(name = "gbmeu", version, about = "终端中的 Game Boy DMG 模拟器")]
+#[command(
+    name = "gbmeu",
+    version,
+    about = "终端中的 Game Boy 与 Game Boy Color 模拟器"
+)]
 struct Cli {
     /// 要加载的 Game Boy ROM 文件
     rom: Option<PathBuf>,
