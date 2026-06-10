@@ -243,17 +243,22 @@ pub struct CartridgeHeader {
 
 impl CartridgeHeader {
     pub fn parse(rom: &[u8]) -> Result<Self, CartridgeError> {
-        if rom.len() < HEADER_LENGTH {
+        Self::parse_at(rom, 0)
+    }
+
+    pub(super) fn parse_at(rom: &[u8], base: usize) -> Result<Self, CartridgeError> {
+        let available = rom.len().saturating_sub(base);
+        if available < HEADER_LENGTH {
             return Err(CartridgeError::RomTooSmall {
-                actual: rom.len(),
+                actual: available,
                 minimum: HEADER_LENGTH,
             });
         }
 
-        let cartridge_type = parse_cartridge_type(rom[CARTRIDGE_TYPE_ADDRESS])?;
-        let rom_size = parse_rom_size(rom[ROM_SIZE_ADDRESS])?;
-        let ram_size = parse_ram_size(rom[RAM_SIZE_ADDRESS])?;
-        let cgb_support = parse_cgb_support(rom[CGB_FLAG_ADDRESS]);
+        let cartridge_type = parse_cartridge_type(rom[base + CARTRIDGE_TYPE_ADDRESS])?;
+        let rom_size = parse_rom_size(rom[base + ROM_SIZE_ADDRESS])?;
+        let ram_size = parse_ram_size(rom[base + RAM_SIZE_ADDRESS])?;
+        let cgb_support = parse_cgb_support(rom[base + CGB_FLAG_ADDRESS]);
 
         if rom.len() < rom_size {
             return Err(CartridgeError::RomLengthMismatch {
@@ -267,7 +272,7 @@ impl CartridgeHeader {
         } else {
             CGB_TITLE_END
         };
-        let title_bytes = &rom[TITLE_START..title_end];
+        let title_bytes = &rom[base + TITLE_START..base + title_end];
         let title_length = title_bytes
             .iter()
             .position(|byte| *byte == 0)

@@ -3,11 +3,13 @@ mod mbc1;
 mod mbc2;
 mod mbc3;
 mod mbc5;
+mod mmm01;
 
 use mbc1::Mbc1;
 use mbc2::Mbc2;
 use mbc3::Mbc3;
 use mbc5::Mbc5;
+use mmm01::Mmm01;
 
 pub use header::{
     CartridgeError, CartridgeFeatures, CartridgeHeader, CartridgeType, CgbSupport, ControllerKind,
@@ -27,7 +29,7 @@ pub struct Cartridge {
 
 impl Cartridge {
     pub fn from_bytes(mut rom: Vec<u8>) -> Result<Self, CartridgeError> {
-        let header = CartridgeHeader::parse(&rom)?;
+        let header = parse_cartridge_header(&rom)?;
         validate_configuration(&header)?;
         rom.truncate(header.rom_size());
 
@@ -40,6 +42,11 @@ impl Cartridge {
             }
             CartridgeType::Mbc2 | CartridgeType::Mbc2Battery => {
                 Controller::Mbc2(Mbc2::new(rom))
+            }
+            CartridgeType::Mmm01
+            | CartridgeType::Mmm01Ram
+            | CartridgeType::Mmm01RamBattery => {
+                Controller::Mmm01(Mmm01::new(rom, header.ram_size()))
             }
             CartridgeType::Mbc3TimerBattery
             | CartridgeType::Mbc3TimerRamBattery
@@ -89,6 +96,24 @@ impl Cartridge {
     }
 }
 
+fn parse_cartridge_header(rom: &[u8]) -> Result<CartridgeHeader, CartridgeError> {
+    const MENU_SIZE: usize = 32 * 1024;
+    const TYPE_OFFSET: usize = 0x147;
+
+    if let Some(menu_base) = rom.len().checked_sub(MENU_SIZE)
+        && matches!(
+            rom.get(menu_base + TYPE_OFFSET),
+            Some(0x0b | 0x0c | 0x0d)
+        )
+        && let Ok(header) = CartridgeHeader::parse_at(rom, menu_base)
+        && header.rom_size() == rom.len()
+    {
+        return Ok(header);
+    }
+
+    CartridgeHeader::parse(rom)
+}
+
 fn validate_configuration(header: &CartridgeHeader) -> Result<(), CartridgeError> {
     let invalid = |message: &str| Err(CartridgeError::InvalidConfiguration(message.to_owned()));
 
@@ -118,6 +143,18 @@ fn validate_configuration(header: &CartridgeHeader) -> Result<(), CartridgeError
                 return invalid("MBC1 最多支持 32 KiB 外部 RAM");
             }
         }
+        CartridgeType::Mmm01 | CartridgeType::Mmm01Ram | CartridgeType::Mmm01RamBattery => {
+            let has_ram = header.cartridge_type().features().ram;
+            if has_ram != (header.ram_size() != 0) {
+                return invalid("MMM01 卡带的类型与外部 RAM 容量不匹配");
+            }
+            if header.rom_size() > 8 * 1024 * 1024 {
+                return invalid("MMM01 最多支持 8 MiB ROM");
+            }
+            if header.ram_size() > 128 * 1024 {
+                return invalid("MMM01 最多支持 128 KiB 外部 RAM");
+            }
+        }
         _ => return Ok(()),
     }
 
@@ -140,6 +177,7 @@ enum Controller {
     RomOnly(RomOnly),
     Mbc1(Mbc1),
     Mbc2(Mbc2),
+    Mmm01(Mmm01),
     Mbc3(Mbc3),
     Mbc5(Mbc5),
 }
@@ -150,6 +188,7 @@ impl MemoryBankController for Controller {
             Self::RomOnly(controller) => controller.read_rom(address),
             Self::Mbc1(controller) => controller.read_rom(address),
             Self::Mbc2(controller) => controller.read_rom(address),
+            Self::Mmm01(controller) => controller.read_rom(address),
             Self::Mbc3(controller) => controller.read_rom(address),
             Self::Mbc5(controller) => controller.read_rom(address),
         }
@@ -160,6 +199,7 @@ impl MemoryBankController for Controller {
             Self::RomOnly(controller) => controller.write_rom(address, value),
             Self::Mbc1(controller) => controller.write_rom(address, value),
             Self::Mbc2(controller) => controller.write_rom(address, value),
+            Self::Mmm01(controller) => controller.write_rom(address, value),
             Self::Mbc3(controller) => controller.write_rom(address, value),
             Self::Mbc5(controller) => controller.write_rom(address, value),
         }
@@ -170,6 +210,7 @@ impl MemoryBankController for Controller {
             Self::RomOnly(controller) => controller.read_ram(address),
             Self::Mbc1(controller) => controller.read_ram(address),
             Self::Mbc2(controller) => controller.read_ram(address),
+            Self::Mmm01(controller) => controller.read_ram(address),
             Self::Mbc3(controller) => controller.read_ram(address),
             Self::Mbc5(controller) => controller.read_ram(address),
         }
@@ -180,6 +221,7 @@ impl MemoryBankController for Controller {
             Self::RomOnly(controller) => controller.write_ram(address, value),
             Self::Mbc1(controller) => controller.write_ram(address, value),
             Self::Mbc2(controller) => controller.write_ram(address, value),
+            Self::Mmm01(controller) => controller.write_ram(address, value),
             Self::Mbc3(controller) => controller.write_ram(address, value),
             Self::Mbc5(controller) => controller.write_ram(address, value),
         }
@@ -322,6 +364,26 @@ mod tests {
         cartridge.write_ram(0xa123, 0x5a);
 
         assert_eq!(cartridge.read_ram(0xa123), 0x5a);
+    }
+
+    #[test]
+    fn loads_mmm01_header_from_last_thirty_two_kib() {
+        let mut rom = vec![0; 512 * 1024];
+        for bank in 0..32 {
+            rom[bank * 0x4000] = bank as u8;
+        }
+        let menu_base = rom.len() - 32 * 1024;
+        rom[menu_base + 0x134..menu_base + 0x13a].copy_from_slice(b"MMM01!");
+        rom[menu_base + 0x147] = 0x0b;
+        rom[menu_base + 0x148] = 0x04;
+        rom[menu_base + 0x149] = 0x00;
+
+        let cartridge = Cartridge::from_bytes(rom).expect("MMM01 菜单卡带头应创建成功");
+
+        assert_eq!(cartridge.header().cartridge_type(), CartridgeType::Mmm01);
+        assert_eq!(cartridge.header().title(), "MMM01!");
+        assert_eq!(cartridge.read_rom(0x0000), 30);
+        assert_eq!(cartridge.read_rom(0x4000), 31);
     }
 
     #[test]
