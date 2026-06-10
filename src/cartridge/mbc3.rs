@@ -1,13 +1,12 @@
-use super::{
-    CartridgeError, MemoryBankController, PersistentState, validate_persistent_length,
-};
+use super::{CartridgeError, MemoryBankController, PersistentState, validate_persistent_length};
+use serde::{Deserialize, Serialize};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_BANK_SIZE: usize = 8 * 1024;
 const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
 const RTC_DAY_PERIOD: u64 = 512;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Rtc {
     seconds: u8,
     minutes: u8,
@@ -97,6 +96,7 @@ impl Rtc {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Mbc3 {
     rom: Vec<u8>,
     ram: Vec<u8>,
@@ -189,9 +189,7 @@ impl MemoryBankController for Mbc3 {
                 .and_then(|index| self.ram.get(index))
                 .copied()
                 .unwrap_or(0xff),
-            0x08..=0x0c if self.has_rtc => {
-                self.latched_rtc.read_register(self.ram_rtc_selector)
-            }
+            0x08..=0x0c if self.has_rtc => self.latched_rtc.read_register(self.ram_rtc_selector),
             _ => 0xff,
         }
     }
@@ -219,18 +217,16 @@ impl MemoryBankController for Mbc3 {
     fn persistent_state(&self) -> PersistentState {
         PersistentState {
             ram: self.ram.clone(),
-            rtc: self
-                .has_rtc
-                .then(|| self.rtc.persistent_bytes().to_vec())
-                .unwrap_or_default(),
+            rtc: if self.has_rtc {
+                self.rtc.persistent_bytes().to_vec()
+            } else {
+                Vec::new()
+            },
             ..PersistentState::default()
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         validate_persistent_length(self.ram.len(), state.ram.len(), "RAM")?;
         let rtc_size = if self.has_rtc {
             Rtc::PERSISTENT_SIZE

@@ -40,7 +40,8 @@ pub fn render(frame: &mut Frame, app: &App) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{state}  FPS: {:.1}  {}",
+            "{state}  槽位: {}  FPS: {:.1}  {}",
+            app.state_slot(),
             app.fps(),
             app.status_message()
         ))
@@ -49,7 +50,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     );
     frame.render_widget(
         Paragraph::new(
-            "方向键: 十字键  Z:B  X:A  Enter:Start  Backspace:Select  Ctrl+S:保存  Ctrl+L:加载  Q:退出",
+            "方向键:十字键  Z:B  X:A  数字键:槽位  F5:即时保存  F9:即时加载  Ctrl+S/Ctrl+L:卡带存档  Q:退出",
         )
         .alignment(Alignment::Center),
         vertical[2],

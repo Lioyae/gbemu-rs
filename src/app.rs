@@ -10,7 +10,7 @@ use crate::{
     debugger::{DebugSnapshot, Debugger},
     emulator::{Emulator, EmulatorError},
     joypad::JoypadButton,
-    save::{BatterySave, SaveError},
+    save::{BatterySave, SaveError, StateError, StateSave},
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -33,6 +33,8 @@ pub enum AppError {
     Emulator(#[from] EmulatorError),
     #[error(transparent)]
     Save(#[from] SaveError),
+    #[error(transparent)]
+    State(#[from] StateError),
 }
 
 pub struct App {
@@ -42,6 +44,7 @@ pub struct App {
     should_quit: bool,
     exit_confirmation: ExitConfirmation,
     status_message: String,
+    state_slot: u8,
     memory_start: u16,
     fps: f64,
     frames_since_measurement: u32,
@@ -57,6 +60,7 @@ impl App {
             should_quit: false,
             exit_confirmation: ExitConfirmation::None,
             status_message: "未执行存档操作".to_owned(),
+            state_slot: 0,
             memory_start: 0xc000,
             fps: 0.0,
             frames_since_measurement: 0,
@@ -94,6 +98,10 @@ impl App {
         &self.status_message
     }
 
+    pub fn state_slot(&self) -> u8 {
+        self.state_slot
+    }
+
     pub fn memory_start(&self) -> u16 {
         self.memory_start
     }
@@ -124,9 +132,7 @@ impl App {
             return self.handle_exit_confirmation(event.code);
         }
 
-        if event.kind != KeyEventKind::Release
-            && event.modifiers.contains(KeyModifiers::CONTROL)
-        {
+        if event.kind != KeyEventKind::Release && event.modifiers.contains(KeyModifiers::CONTROL) {
             match event.code {
                 KeyCode::Char('s' | 'S') => {
                     self.save_battery()?;
@@ -155,6 +161,12 @@ impl App {
         }
         match event.code {
             KeyCode::Char('q' | 'Q') | KeyCode::Esc => self.request_quit(),
+            KeyCode::Char(character @ '0'..='9') => {
+                self.state_slot = character as u8 - b'0';
+                self.status_message = format!("已选择即时存档槽位 {}", self.state_slot);
+            }
+            KeyCode::F(5) => self.save_state()?,
+            KeyCode::F(9) => self.load_state()?,
             KeyCode::Tab => {
                 self.mode = match self.mode {
                     ViewMode::Game => ViewMode::Debugger,
@@ -218,6 +230,20 @@ impl App {
         let rom_path = self.rom_path()?.to_owned();
         BatterySave::load(&mut self.emulator, &rom_path)?;
         self.status_message = format!("存档已加载：{}", rom_path.with_extension("sav").display());
+        Ok(())
+    }
+
+    fn save_state(&mut self) -> Result<(), AppError> {
+        let rom_path = self.rom_path()?.to_owned();
+        StateSave::save(&self.emulator, &rom_path, self.state_slot)?;
+        self.status_message = format!("即时存档槽位 {} 已保存", self.state_slot);
+        Ok(())
+    }
+
+    fn load_state(&mut self) -> Result<(), AppError> {
+        let rom_path = self.rom_path()?.to_owned();
+        StateSave::load(&mut self.emulator, &rom_path, self.state_slot)?;
+        self.status_message = format!("即时存档槽位 {} 已加载", self.state_slot);
         Ok(())
     }
 
@@ -344,10 +370,7 @@ mod tests {
 
     #[test]
     fn control_s_and_control_l_save_and_restore_battery_ram() {
-        let directory = std::env::temp_dir().join(format!(
-            "gbmeu-app-save-{}",
-            std::process::id()
-        ));
+        let directory = std::env::temp_dir().join(format!("gbmeu-app-save-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("临时目录应创建成功");
         let rom_path = directory.join("game.gb");
         let mut app = battery_app(rom_path);
@@ -382,5 +405,37 @@ mod tests {
         app.handle_key(key(KeyCode::Char('d'), KeyEventKind::Press))
             .expect("放弃存档应成功");
         assert!(app.should_quit());
+    }
+
+    #[test]
+    fn number_keys_select_state_slot() {
+        let mut app = test_app();
+
+        app.handle_key(key(KeyCode::Char('7'), KeyEventKind::Press))
+            .expect("槽位选择应成功");
+
+        assert_eq!(app.state_slot(), 7);
+        assert!(app.status_message().contains("7"));
+    }
+
+    #[test]
+    fn f5_and_f9_save_and_restore_selected_state_slot() {
+        let directory =
+            std::env::temp_dir().join(format!("gbmeu-app-state-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("临时目录应创建成功");
+        let rom_path = directory.join("game.gb");
+        let mut app = App::with_rom_path(test_app().emulator, rom_path);
+        app.handle_key(key(KeyCode::Char('3'), KeyEventKind::Press))
+            .expect("槽位选择应成功");
+        app.emulator_mut().write_memory(0xc000, 0x5a);
+        app.handle_key(key(KeyCode::F(5), KeyEventKind::Press))
+            .expect("F5 应保存即时存档");
+
+        app.emulator_mut().write_memory(0xc000, 0x11);
+        app.handle_key(key(KeyCode::F(9), KeyEventKind::Press))
+            .expect("F9 应加载即时存档");
+
+        assert_eq!(app.emulator().read_memory(0xc000), 0x5a);
+        std::fs::remove_dir_all(directory).expect("临时目录应清理成功");
     }
 }

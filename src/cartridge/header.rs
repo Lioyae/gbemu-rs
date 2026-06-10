@@ -1,5 +1,6 @@
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const HEADER_LENGTH: usize = 0x150;
@@ -11,7 +12,7 @@ const CARTRIDGE_TYPE_ADDRESS: usize = 0x147;
 const ROM_SIZE_ADDRESS: usize = 0x148;
 const RAM_SIZE_ADDRESS: usize = 0x149;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CartridgeType {
     RomOnly,
     Mbc1,
@@ -43,8 +44,9 @@ pub enum CartridgeType {
     Huc1RamBattery,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ControllerKind {
+    #[default]
     Rom,
     Mbc1,
     Mbc2,
@@ -59,13 +61,7 @@ pub enum ControllerKind {
     Huc1,
 }
 
-impl Default for ControllerKind {
-    fn default() -> Self {
-        Self::Rom
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CartridgeFeatures {
     pub ram: bool,
     pub battery: bool,
@@ -76,7 +72,7 @@ pub struct CartridgeFeatures {
     pub infrared: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CgbSupport {
     DmgOnly,
     Compatible,
@@ -238,7 +234,7 @@ impl fmt::Display for CartridgeType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CartridgeHeader {
     title: String,
     cartridge_type: CartridgeType,

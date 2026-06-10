@@ -6,6 +6,7 @@ use crate::{
     ppu::{Ppu, framebuffer::Framebuffer},
     timer::Timer,
 };
+use serde::{Deserialize, Serialize};
 
 const WRAM_SIZE: usize = 0x8000;
 const OAM_SIZE: u16 = 0x00a0;
@@ -22,11 +23,12 @@ pub enum Interrupt {
     Joypad = 0x10,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Bus {
     cartridge: Cartridge,
-    wram: [u8; WRAM_SIZE],
-    io: [u8; IO_SIZE],
-    hram: [u8; HRAM_SIZE],
+    wram: Vec<u8>,
+    io: Vec<u8>,
+    hram: Vec<u8>,
     timer: Timer,
     joypad: Joypad,
     ppu: Ppu,
@@ -56,9 +58,9 @@ impl Bus {
     pub fn with_model(cartridge: Cartridge, model: HardwareModel) -> Self {
         Self {
             cartridge,
-            wram: [0; WRAM_SIZE],
-            io: [0; IO_SIZE],
-            hram: [0; HRAM_SIZE],
+            wram: vec![0; WRAM_SIZE],
+            io: vec![0; IO_SIZE],
+            hram: vec![0; HRAM_SIZE],
             timer: Timer::new(),
             joypad: Joypad::new(),
             ppu: Ppu::post_boot_for_model(model),

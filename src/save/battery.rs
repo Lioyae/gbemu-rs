@@ -132,16 +132,12 @@ fn decode_rtc(bytes: &[u8]) -> Result<DecodedRtc, SaveError> {
         return Err(SaveError::InvalidRtc("文件头不正确".to_owned()));
     }
     if bytes[4] != RTC_VERSION {
-        return Err(SaveError::InvalidRtc(format!(
-            "不支持的版本 {}",
-            bytes[4]
-        )));
+        return Err(SaveError::InvalidRtc(format!("不支持的版本 {}", bytes[4])));
     }
     let controller = controller_from_code(bytes[5])
         .ok_or_else(|| SaveError::InvalidRtc("控制器编码无效".to_owned()))?;
     let timestamp = u64::from_le_bytes(bytes[8..16].try_into().expect("固定长度切片"));
-    let data_len =
-        u32::from_le_bytes(bytes[16..20].try_into().expect("固定长度切片")) as usize;
+    let data_len = u32::from_le_bytes(bytes[16..20].try_into().expect("固定长度切片")) as usize;
     if bytes.len() != RTC_HEADER_SIZE + data_len {
         return Err(SaveError::InvalidRtc("文件长度与头部声明不一致".to_owned()));
     }
@@ -152,7 +148,7 @@ fn decode_rtc(bytes: &[u8]) -> Result<DecodedRtc, SaveError> {
     })
 }
 
-fn atomic_write(path: &Path, data: &[u8]) -> io::Result<()> {
+pub(super) fn atomic_write(path: &Path, data: &[u8]) -> io::Result<()> {
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())

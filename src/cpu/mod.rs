@@ -2,6 +2,7 @@ pub mod instruction;
 pub mod registers;
 
 use registers::Registers;
+use serde::{Deserialize, Serialize};
 
 use crate::model::HardwareModel;
 
@@ -40,7 +41,7 @@ pub trait Memory {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cpu {
     registers: Registers,
     ime: bool,

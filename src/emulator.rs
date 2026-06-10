@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
@@ -26,11 +28,13 @@ pub struct FrameRunResult {
     pub frame_ready: bool,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Emulator {
     cpu: Cpu,
     bus: Bus,
     paused: bool,
     model: HardwareModel,
+    rom_hash: [u8; 32],
 }
 
 impl Emulator {
@@ -42,6 +46,7 @@ impl Emulator {
         rom: Vec<u8>,
         preference: ModelPreference,
     ) -> Result<Self, EmulatorError> {
+        let rom_hash = Sha256::digest(&rom).into();
         let cartridge = Cartridge::from_bytes(rom)?;
         let support = cartridge.header().cgb_support();
         if support == crate::cartridge::CgbSupport::Required && preference == ModelPreference::Dmg {
@@ -53,6 +58,7 @@ impl Emulator {
             bus: Bus::with_model(cartridge, model),
             paused: false,
             model,
+            rom_hash,
         })
     }
 
@@ -94,6 +100,10 @@ impl Emulator {
 
     pub fn model(&self) -> HardwareModel {
         self.model
+    }
+
+    pub fn rom_hash(&self) -> &[u8; 32] {
+        &self.rom_hash
     }
 
     pub fn paused(&self) -> bool {

@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JoypadButton {
@@ -11,6 +13,7 @@ pub enum JoypadButton {
     Start = 7,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Joypad {
     selection: u8,
     pressed: u8,

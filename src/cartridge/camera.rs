@@ -1,6 +1,5 @@
-use super::{
-    CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
-};
+use super::{CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes};
+use serde::{Deserialize, Serialize};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_BANK_SIZE: usize = 8 * 1024;
@@ -9,10 +8,11 @@ const CAMERA_REGISTER_COUNT: usize = 0x36;
 const IMAGE_OFFSET: usize = 0x100;
 const IMAGE_SIZE: usize = 128 * 112 / 4;
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Camera {
     rom: Vec<u8>,
     ram: Vec<u8>,
-    registers: [u8; CAMERA_REGISTER_COUNT],
+    registers: Vec<u8>,
     rom_bank: u8,
     ram_bank: u8,
     ram_writable: bool,
@@ -24,7 +24,7 @@ impl Camera {
         Self {
             rom,
             ram: vec![0; ram_size.max(CAMERA_RAM_SIZE)],
-            registers: [0; CAMERA_REGISTER_COUNT],
+            registers: vec![0; CAMERA_REGISTER_COUNT],
             rom_bank: 1,
             ram_bank: 0,
             ram_writable: false,
@@ -142,10 +142,7 @@ impl MemoryBankController for Camera {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         load_persistent_bytes(&mut self.ram, &state.ram, "Camera RAM")
     }
 }

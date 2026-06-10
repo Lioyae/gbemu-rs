@@ -9,5 +9,8 @@ clap = { version = "4", features = ["derive"] }
 crossterm = "0.29"
 directories = "6.0.0"
 ratatui = "0.29"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
 thiserror = "2"
 walkdir = "2.5.0"
+bincode = "1.3"

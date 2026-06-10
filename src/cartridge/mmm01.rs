@@ -1,10 +1,10 @@
-use super::{
-    CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
-};
+use super::{CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes};
+use serde::{Deserialize, Serialize};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_BANK_SIZE: usize = 8 * 1024;
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Mmm01 {
     rom: Vec<u8>,
     ram: Vec<u8>,
@@ -129,9 +129,7 @@ impl MemoryBankController for Mmm01 {
     fn read_rom(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x3fff => self.read_rom_bank(self.lower_rom_bank(), address as usize),
-            0x4000..=0x7fff => {
-                self.read_rom_bank(self.upper_rom_bank(), address as usize - 0x4000)
-            }
+            0x4000..=0x7fff => self.read_rom_bank(self.upper_rom_bank(), address as usize - 0x4000),
             _ => 0xff,
         }
     }
@@ -206,10 +204,7 @@ impl MemoryBankController for Mmm01 {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         load_persistent_bytes(&mut self.ram, &state.ram, "RAM")
     }
 }

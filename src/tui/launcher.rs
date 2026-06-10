@@ -1,6 +1,5 @@
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -86,9 +85,7 @@ impl Launcher {
 
     fn rescan(&mut self) {
         self.scan = scan_roms(self.config.directories());
-        self.selected = self
-            .selected
-            .min(self.scan.entries.len().saturating_sub(1));
+        self.selected = self.selected.min(self.scan.entries.len().saturating_sub(1));
         self.update_scan_status();
     }
 
@@ -162,9 +159,7 @@ impl Launcher {
 
     fn add_browser_directory(&mut self) -> Result<()> {
         if self.config.add_directory(self.browser_directory.clone()) {
-            self.config
-                .save_default()
-                .context("无法保存 ROM 库配置")?;
+            self.config.save_default().context("无法保存 ROM 库配置")?;
             self.rescan();
             self.status = format!("已添加目录：{}", self.browser_directory.display());
         } else {
@@ -175,9 +170,7 @@ impl Launcher {
 
     fn remove_browser_directory(&mut self) -> Result<()> {
         if self.config.remove_directory(&self.browser_directory) {
-            self.config
-                .save_default()
-                .context("无法保存 ROM 库配置")?;
+            self.config.save_default().context("无法保存 ROM 库配置")?;
             self.rescan();
             self.status = format!("已移除目录：{}", self.browser_directory.display());
         } else {
@@ -278,18 +271,13 @@ fn render(frame: &mut Frame, launcher: &Launcher) {
     }
 
     let help = match launcher.mode {
-        LauncherMode::Library => {
-            "↑↓ 选择  Enter 启动  F2/Tab 文件浏览器  R 重扫  Q/Esc 退出"
-        }
+        LauncherMode::Library => "↑↓ 选择  Enter 启动  F2/Tab 文件浏览器  R 重扫  Q/Esc 退出",
         LauncherMode::Browser => {
             "↑↓ 选择  Enter 打开/启动  Backspace 上级  A 添加目录  D 移除目录  Esc 返回"
         }
     };
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(launcher.status.clone()),
-            Line::from(help),
-        ]),
+        Paragraph::new(vec![Line::from(launcher.status.clone()), Line::from(help)]),
         vertical[2],
     );
 }
@@ -310,9 +298,8 @@ fn render_library(frame: &mut Frame, launcher: &Launcher, area: Rect) {
             ]))
         })
         .collect();
-    let mut state = ListState::default().with_selected(
-        (!launcher.scan.entries.is_empty()).then_some(launcher.selected),
-    );
+    let mut state = ListState::default()
+        .with_selected((!launcher.scan.entries.is_empty()).then_some(launcher.selected));
     frame.render_stateful_widget(
         List::new(items)
             .block(Block::default().borders(Borders::ALL).title(" ROM 库 "))
@@ -355,16 +342,14 @@ fn render_browser(frame: &mut Frame, launcher: &Launcher, area: Rect) {
             ListItem::new(format!("{prefix}{name}"))
         })
         .collect();
-    let mut state = ListState::default().with_selected(
-        (!launcher.browser_entries.is_empty()).then_some(launcher.browser_selected),
-    );
+    let mut state = ListState::default()
+        .with_selected((!launcher.browser_entries.is_empty()).then_some(launcher.browser_selected));
     frame.render_stateful_widget(
         List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(format!(" 文件浏览器：{} ", launcher.browser_directory.display())),
-            )
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                " 文件浏览器：{} ",
+                launcher.browser_directory.display()
+            )))
             .highlight_style(Style::default().bg(Color::DarkGray))
             .highlight_symbol("> "),
         area,
@@ -385,9 +370,9 @@ fn render_rom_detail(entry: &RomEntry) -> String {
 
 fn browser_sort_key(entry: &BrowserEntry) -> String {
     let path = match entry {
-        BrowserEntry::Parent(path)
-        | BrowserEntry::Directory(path)
-        | BrowserEntry::Rom(path) => path,
+        BrowserEntry::Parent(path) | BrowserEntry::Directory(path) | BrowserEntry::Rom(path) => {
+            path
+        }
     };
     path.file_name()
         .and_then(|name| name.to_str())

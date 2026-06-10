@@ -1,12 +1,12 @@
-use super::{
-    CartridgeError, MemoryBankController, PersistentState, validate_persistent_length,
-};
+use super::{CartridgeError, MemoryBankController, PersistentState, validate_persistent_length};
+use serde::{Deserialize, Serialize};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const REGISTER_COUNT: usize = 8;
 const EEPROM_SIZE: usize = 32;
 const RTC_PAGE_SIZE: usize = 16;
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Tama5 {
     rom: Vec<u8>,
     eeprom: [u8; EEPROM_SIZE],
@@ -199,10 +199,7 @@ impl MemoryBankController for Tama5 {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         const RTC_SIZE: usize = RTC_PAGE_SIZE * 4 + 1;
         validate_persistent_length(self.eeprom.len(), state.ram.len(), "TAMA5 EEPROM")?;
         validate_persistent_length(RTC_SIZE, state.rtc.len(), "TAMA5 RTC")?;

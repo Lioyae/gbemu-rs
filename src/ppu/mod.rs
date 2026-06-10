@@ -3,6 +3,7 @@ pub mod framebuffer;
 use crate::model::HardwareModel;
 
 use framebuffer::{Framebuffer, Pixel, Shade};
+use serde::{Deserialize, Serialize};
 
 const VRAM_BANK_SIZE: usize = 0x2000;
 const VRAM_SIZE: usize = VRAM_BANK_SIZE * 2;
@@ -11,7 +12,7 @@ const OAM_SCAN_END: u16 = 80;
 const DRAWING_END: u16 = 252;
 const SCANLINE_END: u16 = 456;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum LcdMode {
     #[default]
@@ -29,11 +30,12 @@ pub struct PpuEvents {
     pub hblank_started: bool,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Ppu {
     model: HardwareModel,
-    vram: [u8; VRAM_SIZE],
+    vram: Vec<u8>,
     vram_bank: u8,
-    oam: [u8; OAM_SIZE],
+    oam: Vec<u8>,
     framebuffer: Framebuffer,
     lcdc: u8,
     stat: u8,
@@ -53,8 +55,8 @@ pub struct Ppu {
     pending_stat_interrupt: bool,
     bg_palette_index: u8,
     obj_palette_index: u8,
-    bg_palette_data: [u8; 64],
-    obj_palette_data: [u8; 64],
+    bg_palette_data: Vec<u8>,
+    obj_palette_data: Vec<u8>,
 }
 
 impl Ppu {
@@ -65,9 +67,9 @@ impl Ppu {
     pub fn post_boot_for_model(model: HardwareModel) -> Self {
         Self {
             model,
-            vram: [0; VRAM_SIZE],
+            vram: vec![0; VRAM_SIZE],
             vram_bank: 0,
-            oam: [0; OAM_SIZE],
+            oam: vec![0; OAM_SIZE],
             framebuffer: Framebuffer::new(),
             lcdc: 0x91,
             stat: 0x00,
@@ -87,8 +89,8 @@ impl Ppu {
             pending_stat_interrupt: false,
             bg_palette_index: 0,
             obj_palette_index: 0,
-            bg_palette_data: [0xff; 64],
-            obj_palette_data: [0xff; 64],
+            bg_palette_data: vec![0xff; 64],
+            obj_palette_data: vec![0xff; 64],
         }
     }
 
@@ -528,7 +530,7 @@ fn palette_shade(palette: u8, color: u8) -> Shade {
     Shade::from_color((palette >> (color * 2)) & 0x03)
 }
 
-fn palette_pixel(data: &[u8; 64], palette: u8, color: u8) -> Pixel {
+fn palette_pixel(data: &[u8], palette: u8, color: u8) -> Pixel {
     let index = usize::from(palette & 0x07) * 8 + usize::from(color & 0x03) * 2;
     let value = u16::from(data[index]) | u16::from(data[index + 1]) << 8;
     Pixel::from_rgb555(value)

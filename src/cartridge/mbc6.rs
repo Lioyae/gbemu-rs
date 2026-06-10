@@ -1,13 +1,12 @@
-use super::{
-    CartridgeError, MemoryBankController, PersistentState, validate_persistent_length,
-};
+use super::{CartridgeError, MemoryBankController, PersistentState, validate_persistent_length};
+use serde::{Deserialize, Serialize};
 
 const ROM_BANK_SIZE: usize = 8 * 1024;
 const RAM_BANK_SIZE: usize = 4 * 1024;
 const FLASH_SIZE: usize = 1024 * 1024;
 const FLASH_SECTOR_SIZE: usize = 128 * 1024;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 enum FlashCommand {
     #[default]
     Idle,
@@ -19,6 +18,7 @@ enum FlashCommand {
     EraseCommand,
 }
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Mbc6 {
     rom: Vec<u8>,
     ram: Vec<u8>,
@@ -92,9 +92,7 @@ impl Mbc6 {
             FlashCommand::UnlockOne if address == 0x2aaa && value == 0x55 => {
                 FlashCommand::UnlockTwo
             }
-            FlashCommand::UnlockTwo if address == 0x5555 && value == 0xa0 => {
-                FlashCommand::Program
-            }
+            FlashCommand::UnlockTwo if address == 0x5555 && value == 0xa0 => FlashCommand::Program,
             FlashCommand::UnlockTwo if address == 0x5555 && value == 0x80 => {
                 FlashCommand::EraseUnlockOne
             }
@@ -150,12 +148,8 @@ impl MemoryBankController for Mbc6 {
     fn read_rom(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x3fff => self.rom.get(address as usize).copied().unwrap_or(0xff),
-            0x4000..=0x5fff => {
-                self.read_bank(self.bank_a, address as usize - 0x4000, self.flash_a)
-            }
-            0x6000..=0x7fff => {
-                self.read_bank(self.bank_b, address as usize - 0x6000, self.flash_b)
-            }
+            0x4000..=0x5fff => self.read_bank(self.bank_a, address as usize - 0x4000, self.flash_a),
+            0x6000..=0x7fff => self.read_bank(self.bank_b, address as usize - 0x6000, self.flash_b),
             _ => 0xff,
         }
     }
@@ -203,10 +197,7 @@ impl MemoryBankController for Mbc6 {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         validate_persistent_length(self.ram.len(), state.ram.len(), "MBC6 RAM")?;
         validate_persistent_length(self.flash.len(), state.flash.len(), "MBC6 Flash")?;
         self.ram.copy_from_slice(&state.ram);

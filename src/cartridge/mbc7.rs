@@ -1,12 +1,11 @@
-use super::{
-    CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
-};
+use super::{CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes};
+use serde::{Deserialize, Serialize};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const EEPROM_SIZE: usize = 256;
 const SENSOR_CENTER: u16 = 0x8000;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 enum EepromState {
     #[default]
     Idle,
@@ -16,9 +15,10 @@ enum EepromState {
     WriteAll,
 }
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Mbc7 {
     rom: Vec<u8>,
-    eeprom: [u8; EEPROM_SIZE],
+    eeprom: Vec<u8>,
     rom_bank: u8,
     access: u8,
     latch_armed: bool,
@@ -36,7 +36,7 @@ impl Mbc7 {
     pub(super) fn new(rom: Vec<u8>) -> Self {
         Self {
             rom,
-            eeprom: [0xff; EEPROM_SIZE],
+            eeprom: vec![0xff; EEPROM_SIZE],
             rom_bank: 1,
             access: 0,
             latch_armed: false,
@@ -266,10 +266,7 @@ impl MemoryBankController for Mbc7 {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         load_persistent_bytes(&mut self.eeprom, &state.ram, "MBC7 EEPROM")
     }
 }

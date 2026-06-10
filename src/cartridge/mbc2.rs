@@ -1,13 +1,13 @@
-use super::{
-    CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
-};
+use super::{CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes};
+use serde::{Deserialize, Serialize};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_SIZE: usize = 512;
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Mbc2 {
     rom: Vec<u8>,
-    ram: [u8; RAM_SIZE],
+    ram: Vec<u8>,
     rom_bank: u8,
     ram_enabled: bool,
 }
@@ -16,7 +16,7 @@ impl Mbc2 {
     pub(super) fn new(rom: Vec<u8>) -> Self {
         Self {
             rom,
-            ram: [0; RAM_SIZE],
+            ram: vec![0; RAM_SIZE],
             rom_bank: 1,
             ram_enabled: false,
         }
@@ -88,10 +88,7 @@ impl MemoryBankController for Mbc2 {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         load_persistent_bytes(&mut self.ram, &state.ram, "MBC2 RAM")
     }
 }

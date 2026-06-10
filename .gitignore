@@ -4,3 +4,6 @@
 /roms/*
 /tests/blargg/*
 /.superpowers/*
+*.sav
+*.rtc
+*.state[0-9]

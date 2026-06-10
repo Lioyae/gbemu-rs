@@ -1,6 +1,5 @@
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -71,7 +70,7 @@ impl LibraryConfig {
 
     pub fn add_directory(&mut self, directory: PathBuf) -> bool {
         let normalized = normalize(&directory);
-        if self.directories.iter().any(|existing| *existing == normalized) {
+        if self.directories.contains(&normalized) {
             return false;
         }
         self.directories.push(normalized);

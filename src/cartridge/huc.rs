@@ -2,10 +2,12 @@ use super::{
     CartridgeError, MemoryBankController, PersistentState, load_persistent_bytes,
     validate_persistent_length,
 };
+use serde::{Deserialize, Serialize};
 
 const ROM_BANK_SIZE: usize = 16 * 1024;
 const RAM_BANK_SIZE: usize = 8 * 1024;
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Huc1 {
     rom: Vec<u8>,
     ram: Vec<u8>,
@@ -103,14 +105,12 @@ impl MemoryBankController for Huc1 {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         load_persistent_bytes(&mut self.ram, &state.ram, "HuC1 RAM")
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Huc3 {
     rom: Vec<u8>,
     ram: Vec<u8>,
@@ -119,7 +119,7 @@ pub(super) struct Huc3 {
     mode: u8,
     index: u8,
     mailbox: u8,
-    registers: [u8; 256],
+    registers: Vec<u8>,
     infrared_transmitting: bool,
     subminute_seconds: u64,
 }
@@ -134,7 +134,7 @@ impl Huc3 {
             mode: 0,
             index: 0,
             mailbox: 0,
-            registers: [0; 256],
+            registers: vec![0; 256],
             infrared_transmitting: false,
             subminute_seconds: 0,
         }
@@ -278,10 +278,7 @@ impl MemoryBankController for Huc3 {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         const RTC_SIZE: usize = 256 + 8;
         validate_persistent_length(self.ram.len(), state.ram.len(), "HuC3 RAM")?;
         validate_persistent_length(RTC_SIZE, state.rtc.len(), "HuC3 RTC")?;

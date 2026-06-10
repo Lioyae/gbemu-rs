@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 pub const SCREEN_WIDTH: usize = 160;
 pub const SCREEN_HEIGHT: usize = 144;
 
@@ -23,7 +25,7 @@ impl Shade {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pixel {
     pub red: u8,
     pub green: u8,
@@ -62,15 +64,15 @@ impl PartialEq<Shade> for Pixel {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Framebuffer {
-    pixels: [Pixel; SCREEN_WIDTH * SCREEN_HEIGHT],
+    pixels: Vec<Pixel>,
 }
 
 impl Framebuffer {
     pub fn new() -> Self {
         Self {
-            pixels: [Pixel::rgb(224, 248, 208); SCREEN_WIDTH * SCREEN_HEIGHT],
+            pixels: vec![Pixel::rgb(224, 248, 208); SCREEN_WIDTH * SCREEN_HEIGHT],
         }
     }
 

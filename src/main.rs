@@ -24,8 +24,8 @@ fn main() -> Result<()> {
             None => return Ok(()),
         },
     };
-    let rom =
-        fs::read(&rom_path).with_context(|| format!("无法读取 ROM 文件：{}", rom_path.display()))?;
+    let rom = fs::read(&rom_path)
+        .with_context(|| format!("无法读取 ROM 文件：{}", rom_path.display()))?;
     let emulator =
         Emulator::from_rom(rom).with_context(|| format!("无法加载卡带：{}", rom_path.display()))?;
     tui::run(emulator, rom_path)

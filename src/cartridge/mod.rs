@@ -1,5 +1,5 @@
-pub mod header;
 mod camera;
+pub mod header;
 mod huc;
 mod mbc1;
 mod mbc2;
@@ -19,13 +19,14 @@ use mbc5::Mbc5;
 use mbc6::Mbc6;
 use mbc7::Mbc7;
 use mmm01::Mmm01;
+use serde::{Deserialize, Serialize};
 use tama5::Tama5;
 
 pub use header::{
     CartridgeError, CartridgeFeatures, CartridgeHeader, CartridgeType, CgbSupport, ControllerKind,
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistentState {
     pub controller: ControllerKind,
     pub ram: Vec<u8>,
@@ -41,10 +42,7 @@ pub trait MemoryBankController {
     fn persistent_state(&self) -> PersistentState {
         PersistentState::default()
     }
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         if state.ram.is_empty() && state.rtc.is_empty() && state.flash.is_empty() {
             Ok(())
         } else {
@@ -56,6 +54,7 @@ pub trait MemoryBankController {
     fn tick_rtc(&mut self, _elapsed_seconds: u64) {}
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Cartridge {
     header: CartridgeHeader,
     controller: Controller,
@@ -80,12 +79,8 @@ impl Cartridge {
             CartridgeType::Mbc1 | CartridgeType::Mbc1Ram | CartridgeType::Mbc1RamBattery => {
                 Controller::Mbc1(Mbc1::new(rom, header.ram_size()))
             }
-            CartridgeType::Mbc2 | CartridgeType::Mbc2Battery => {
-                Controller::Mbc2(Mbc2::new(rom))
-            }
-            CartridgeType::Mmm01
-            | CartridgeType::Mmm01Ram
-            | CartridgeType::Mmm01RamBattery => {
+            CartridgeType::Mbc2 | CartridgeType::Mbc2Battery => Controller::Mbc2(Mbc2::new(rom)),
+            CartridgeType::Mmm01 | CartridgeType::Mmm01Ram | CartridgeType::Mmm01RamBattery => {
                 Controller::Mmm01(Mmm01::new(rom, header.ram_size()))
             }
             CartridgeType::Mbc3TimerBattery
@@ -109,14 +104,10 @@ impl Cartridge {
             )),
             CartridgeType::Mbc6 => Controller::Mbc6(Mbc6::new(rom, header.ram_size())),
             CartridgeType::Mbc7SensorRumbleRamBattery => Controller::Mbc7(Mbc7::new(rom)),
-            CartridgeType::PocketCamera => {
-                Controller::Camera(Camera::new(rom, header.ram_size()))
-            }
+            CartridgeType::PocketCamera => Controller::Camera(Camera::new(rom, header.ram_size())),
             CartridgeType::BandaiTama5 => Controller::Tama5(Tama5::new(rom)),
             CartridgeType::Huc3 => Controller::Huc3(Huc3::new(rom, header.ram_size())),
-            CartridgeType::Huc1RamBattery => {
-                Controller::Huc1(Huc1::new(rom, header.ram_size()))
-            }
+            CartridgeType::Huc1RamBattery => Controller::Huc1(Huc1::new(rom, header.ram_size())),
         };
 
         Ok(Self {
@@ -150,9 +141,7 @@ impl Cartridge {
 
     pub fn write_ram(&mut self, address: u16, value: u8) {
         self.controller.write_ram(address, value);
-        if self.header.cartridge_type().features().battery
-            && (0xa000..=0xbfff).contains(&address)
-        {
+        if self.header.cartridge_type().features().battery && (0xa000..=0xbfff).contains(&address) {
             self.persistent_dirty = true;
         }
     }
@@ -163,10 +152,7 @@ impl Cartridge {
         state
     }
 
-    pub fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    pub fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         let expected = self.header.cartridge_type().controller();
         if state.controller != expected {
             return Err(CartridgeError::PersistentControllerMismatch {
@@ -233,10 +219,7 @@ fn parse_cartridge_header(rom: &[u8]) -> Result<CartridgeHeader, CartridgeError>
     const TYPE_OFFSET: usize = 0x147;
 
     if let Some(menu_base) = rom.len().checked_sub(MENU_SIZE)
-        && matches!(
-            rom.get(menu_base + TYPE_OFFSET),
-            Some(0x0b | 0x0c | 0x0d)
-        )
+        && matches!(rom.get(menu_base + TYPE_OFFSET), Some(0x0b..=0x0d))
         && let Ok(header) = CartridgeHeader::parse_at(rom, menu_base)
         && header.rom_size() == rom.len()
     {
@@ -305,6 +288,7 @@ fn validate_configuration(header: &CartridgeHeader) -> Result<(), CartridgeError
     Ok(())
 }
 
+#[derive(Serialize, Deserialize)]
 enum Controller {
     Camera(Camera),
     Huc1(Huc1),
@@ -406,10 +390,7 @@ impl MemoryBankController for Controller {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         match self {
             Self::Camera(controller) => controller.load_persistent_state(state),
             Self::Huc1(controller) => controller.load_persistent_state(state),
@@ -436,6 +417,7 @@ impl MemoryBankController for Controller {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct RomOnly {
     rom: Vec<u8>,
     ram: Vec<u8>,
@@ -483,10 +465,7 @@ impl MemoryBankController for RomOnly {
         }
     }
 
-    fn load_persistent_state(
-        &mut self,
-        state: &PersistentState,
-    ) -> Result<(), CartridgeError> {
+    fn load_persistent_state(&mut self, state: &PersistentState) -> Result<(), CartridgeError> {
         load_persistent_bytes(&mut self.ram, &state.ram, "RAM")
     }
 }
@@ -642,8 +621,7 @@ mod tests {
 
     #[test]
     fn rejects_persistent_state_from_another_controller() {
-        let mut cartridge =
-            Cartridge::from_bytes(battery_mbc1_rom()).expect("电池卡带应创建成功");
+        let mut cartridge = Cartridge::from_bytes(battery_mbc1_rom()).expect("电池卡带应创建成功");
         let state = PersistentState {
             controller: ControllerKind::Mbc5,
             ram: vec![0; 8 * 1024],
