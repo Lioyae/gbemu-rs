@@ -64,6 +64,10 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
+    pub fn inspect_header(rom: &[u8]) -> Result<CartridgeHeader, CartridgeError> {
+        parse_cartridge_header(rom)
+    }
+
     pub fn from_bytes(mut rom: Vec<u8>) -> Result<Self, CartridgeError> {
         let header = parse_cartridge_header(&rom)?;
         validate_configuration(&header)?;

@@ -7,6 +7,7 @@ pub mod cpu;
 pub mod debugger;
 pub mod emulator;
 pub mod joypad;
+pub mod library;
 pub mod model;
 pub mod ppu;
 pub mod save;
