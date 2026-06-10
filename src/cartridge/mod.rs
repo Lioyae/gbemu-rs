@@ -7,6 +7,7 @@ mod mbc5;
 mod mbc6;
 mod mbc7;
 mod mmm01;
+mod tama5;
 
 use camera::Camera;
 use mbc1::Mbc1;
@@ -16,6 +17,7 @@ use mbc5::Mbc5;
 use mbc6::Mbc6;
 use mbc7::Mbc7;
 use mmm01::Mmm01;
+use tama5::Tama5;
 
 pub use header::{
     CartridgeError, CartridgeFeatures, CartridgeHeader, CartridgeType, CgbSupport, ControllerKind,
@@ -78,6 +80,7 @@ impl Cartridge {
             CartridgeType::PocketCamera => {
                 Controller::Camera(Camera::new(rom, header.ram_size()))
             }
+            CartridgeType::BandaiTama5 => Controller::Tama5(Tama5::new(rom)),
             cartridge_type => {
                 return Err(CartridgeError::ControllerNotImplemented(cartridge_type));
             }
@@ -194,6 +197,7 @@ enum Controller {
     Mbc5(Mbc5),
     Mbc6(Mbc6),
     Mbc7(Mbc7),
+    Tama5(Tama5),
 }
 
 impl MemoryBankController for Controller {
@@ -208,6 +212,7 @@ impl MemoryBankController for Controller {
             Self::Mbc5(controller) => controller.read_rom(address),
             Self::Mbc6(controller) => controller.read_rom(address),
             Self::Mbc7(controller) => controller.read_rom(address),
+            Self::Tama5(controller) => controller.read_rom(address),
         }
     }
 
@@ -222,6 +227,7 @@ impl MemoryBankController for Controller {
             Self::Mbc5(controller) => controller.write_rom(address, value),
             Self::Mbc6(controller) => controller.write_rom(address, value),
             Self::Mbc7(controller) => controller.write_rom(address, value),
+            Self::Tama5(controller) => controller.write_rom(address, value),
         }
     }
 
@@ -236,6 +242,7 @@ impl MemoryBankController for Controller {
             Self::Mbc5(controller) => controller.read_ram(address),
             Self::Mbc6(controller) => controller.read_ram(address),
             Self::Mbc7(controller) => controller.read_ram(address),
+            Self::Tama5(controller) => controller.read_ram(address),
         }
     }
 
@@ -250,6 +257,7 @@ impl MemoryBankController for Controller {
             Self::Mbc5(controller) => controller.write_ram(address, value),
             Self::Mbc6(controller) => controller.write_ram(address, value),
             Self::Mbc7(controller) => controller.write_ram(address, value),
+            Self::Tama5(controller) => controller.write_ram(address, value),
         }
     }
 }
@@ -367,6 +375,7 @@ mod tests {
             (0x20, 0x02, 0x03),
             (0x22, 0x02, 0x00),
             (0xfc, 0x05, 0x04),
+            (0xfd, 0x04, 0x00),
         ];
 
         for (cartridge_type, rom_size, ram_size) in cases {
