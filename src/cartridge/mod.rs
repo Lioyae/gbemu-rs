@@ -1,5 +1,6 @@
 pub mod header;
 mod camera;
+mod huc;
 mod mbc1;
 mod mbc2;
 mod mbc3;
@@ -10,6 +11,7 @@ mod mmm01;
 mod tama5;
 
 use camera::Camera;
+use huc::{Huc1, Huc3};
 use mbc1::Mbc1;
 use mbc2::Mbc2;
 use mbc3::Mbc3;
@@ -81,8 +83,9 @@ impl Cartridge {
                 Controller::Camera(Camera::new(rom, header.ram_size()))
             }
             CartridgeType::BandaiTama5 => Controller::Tama5(Tama5::new(rom)),
-            cartridge_type => {
-                return Err(CartridgeError::ControllerNotImplemented(cartridge_type));
+            CartridgeType::Huc3 => Controller::Huc3(Huc3::new(rom, header.ram_size())),
+            CartridgeType::Huc1RamBattery => {
+                Controller::Huc1(Huc1::new(rom, header.ram_size()))
             }
         };
 
@@ -189,6 +192,8 @@ fn validate_configuration(header: &CartridgeHeader) -> Result<(), CartridgeError
 
 enum Controller {
     Camera(Camera),
+    Huc1(Huc1),
+    Huc3(Huc3),
     RomOnly(RomOnly),
     Mbc1(Mbc1),
     Mbc2(Mbc2),
@@ -204,6 +209,8 @@ impl MemoryBankController for Controller {
     fn read_rom(&self, address: u16) -> u8 {
         match self {
             Self::Camera(controller) => controller.read_rom(address),
+            Self::Huc1(controller) => controller.read_rom(address),
+            Self::Huc3(controller) => controller.read_rom(address),
             Self::RomOnly(controller) => controller.read_rom(address),
             Self::Mbc1(controller) => controller.read_rom(address),
             Self::Mbc2(controller) => controller.read_rom(address),
@@ -219,6 +226,8 @@ impl MemoryBankController for Controller {
     fn write_rom(&mut self, address: u16, value: u8) {
         match self {
             Self::Camera(controller) => controller.write_rom(address, value),
+            Self::Huc1(controller) => controller.write_rom(address, value),
+            Self::Huc3(controller) => controller.write_rom(address, value),
             Self::RomOnly(controller) => controller.write_rom(address, value),
             Self::Mbc1(controller) => controller.write_rom(address, value),
             Self::Mbc2(controller) => controller.write_rom(address, value),
@@ -234,6 +243,8 @@ impl MemoryBankController for Controller {
     fn read_ram(&self, address: u16) -> u8 {
         match self {
             Self::Camera(controller) => controller.read_ram(address),
+            Self::Huc1(controller) => controller.read_ram(address),
+            Self::Huc3(controller) => controller.read_ram(address),
             Self::RomOnly(controller) => controller.read_ram(address),
             Self::Mbc1(controller) => controller.read_ram(address),
             Self::Mbc2(controller) => controller.read_ram(address),
@@ -249,6 +260,8 @@ impl MemoryBankController for Controller {
     fn write_ram(&mut self, address: u16, value: u8) {
         match self {
             Self::Camera(controller) => controller.write_ram(address, value),
+            Self::Huc1(controller) => controller.write_ram(address, value),
+            Self::Huc3(controller) => controller.write_ram(address, value),
             Self::RomOnly(controller) => controller.write_ram(address, value),
             Self::Mbc1(controller) => controller.write_ram(address, value),
             Self::Mbc2(controller) => controller.write_ram(address, value),
@@ -376,6 +389,8 @@ mod tests {
             (0x22, 0x02, 0x00),
             (0xfc, 0x05, 0x04),
             (0xfd, 0x04, 0x00),
+            (0xfe, 0x02, 0x03),
+            (0xff, 0x02, 0x03),
         ];
 
         for (cartridge_type, rom_size, ram_size) in cases {
