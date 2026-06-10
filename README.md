@@ -173,10 +173,12 @@ cargo test --test rom_tests provided_cpu_instrs -- --ignored --nocapture --exact
 cargo test --test rom_tests provided_mem_timing -- --ignored --nocapture --exact
 cargo test --test rom_tests provided_dmg_acid2_smoke -- --ignored --nocapture --exact
 cargo test --test rom_tests provided_mbc1_game_smoke -- --ignored --nocapture --exact
+cargo test --test rom_tests provided_cgb_game_smoke -- --ignored --nocapture --exact
 ```
 
 当前提供的 Blargg `cpu_instrs` 11 个独立测试和 `mem_timing` 3 个测试均已通过。
-`dmg-acid2` 与 MBC1 游戏测试目前执行无界面冒烟验证，仍需人工检查最终画面和可玩性。
+`dmg-acid2`、DMG 游戏和 `zelda1.gbc` 目前执行无界面冒烟验证，仍需人工检查最终画面、
+声音缺失情况下的可玩性和细粒度图形正确性。
 
 ## 项目结构
 

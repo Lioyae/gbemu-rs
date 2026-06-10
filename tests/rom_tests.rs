@@ -142,6 +142,24 @@ fn provided_mbc1_game_smoke() {
     run_frame_smoke("roms/zg.gb", 300);
 }
 
+#[test]
+#[ignore = "需要用户提供 roms/zelda1.gbc"]
+fn provided_cgb_game_smoke() {
+    run_frame_smoke("roms/zelda1.gbc", 300);
+}
+
+#[test]
+#[ignore = "需要用户提供 roms/Pocket Yellow.gb"]
+fn provided_large_mbc_game_smoke() {
+    run_frame_smoke("roms/Pocket Yellow.gb", 300);
+}
+
+#[test]
+#[ignore = "需要用户提供 roms/GB War.gb"]
+fn provided_gb_war_smoke() {
+    run_frame_smoke("roms/GB War.gb", 300);
+}
+
 fn run_frame_smoke(path: &str, frame_count: usize) {
     let rom = fs::read(path).expect("应能读取外部 ROM");
     let mut emulator = Emulator::from_rom(rom).expect("外部 ROM 应能加载");
