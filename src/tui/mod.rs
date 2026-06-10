@@ -1,6 +1,9 @@
 pub mod debug_view;
 pub mod dialog;
 pub mod game_view;
+mod launcher;
+
+pub use launcher::select_rom;
 
 use std::{
     io::{self, Stdout},
