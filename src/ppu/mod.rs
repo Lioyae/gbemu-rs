@@ -2,7 +2,8 @@ pub mod framebuffer;
 
 use framebuffer::{Framebuffer, Shade};
 
-const VRAM_SIZE: usize = 0x2000;
+const VRAM_BANK_SIZE: usize = 0x2000;
+const VRAM_SIZE: usize = VRAM_BANK_SIZE * 2;
 const OAM_SIZE: usize = 0x00a0;
 const OAM_SCAN_END: u16 = 80;
 const DRAWING_END: u16 = 252;
@@ -27,6 +28,7 @@ pub struct PpuEvents {
 
 pub struct Ppu {
     vram: [u8; VRAM_SIZE],
+    vram_bank: u8,
     oam: [u8; OAM_SIZE],
     framebuffer: Framebuffer,
     lcdc: u8,
@@ -51,6 +53,7 @@ impl Ppu {
     pub fn post_boot() -> Self {
         Self {
             vram: [0; VRAM_SIZE],
+            vram_bank: 0,
             oam: [0; OAM_SIZE],
             framebuffer: Framebuffer::new(),
             lcdc: 0x91,
@@ -91,9 +94,18 @@ impl Ppu {
         if self.lcd_enabled() && self.mode == LcdMode::Drawing {
             return;
         }
-        if let Some(byte) = self.vram.get_mut(address.wrapping_sub(0x8000) as usize) {
+        let index = self.vram_index(self.vram_bank, address);
+        if let Some(byte) = self.vram.get_mut(index) {
             *byte = value;
         }
+    }
+
+    pub fn set_vram_bank(&mut self, bank: u8) {
+        self.vram_bank = bank & 0x01;
+    }
+
+    pub fn vram_bank(&self) -> u8 {
+        self.vram_bank
     }
 
     pub fn read_oam(&self, address: u16) -> u8 {
@@ -111,10 +123,18 @@ impl Ppu {
     }
 
     pub(crate) fn read_vram_raw(&self, address: u16) -> u8 {
+        self.read_vram_bank(self.vram_bank, address)
+    }
+
+    fn read_vram_bank(&self, bank: u8, address: u16) -> u8 {
         self.vram
-            .get(address.wrapping_sub(0x8000) as usize)
+            .get(self.vram_index(bank, address))
             .copied()
             .unwrap_or(0xff)
+    }
+
+    fn vram_index(&self, bank: u8, address: u16) -> usize {
+        usize::from(bank & 0x01) * VRAM_BANK_SIZE + address.wrapping_sub(0x8000) as usize
     }
 
     pub(crate) fn read_oam_raw(&self, address: u16) -> u8 {
@@ -322,7 +342,7 @@ impl Ppu {
         let tile_x = u16::from(pixel_x / 8);
         let tile_y = u16::from(pixel_y / 8);
         let map_address = map_base + tile_y * 32 + tile_x;
-        let tile_number = self.read_vram_raw(map_address);
+        let tile_number = self.read_vram_bank(0, map_address);
         let tile_address = if self.lcdc & 0x10 != 0 {
             0x8000 + u16::from(tile_number) * 16
         } else {
@@ -399,8 +419,8 @@ impl Ppu {
 
     fn tile_color(&self, tile_address: u16, x: u8, y: u8) -> u8 {
         let row_address = tile_address + u16::from(y) * 2;
-        let low = self.read_vram_raw(row_address);
-        let high = self.read_vram_raw(row_address + 1);
+        let low = self.read_vram_bank(0, row_address);
+        let high = self.read_vram_bank(0, row_address + 1);
         let bit = 7 - x;
         ((high >> bit) & 1) << 1 | ((low >> bit) & 1)
     }

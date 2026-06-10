@@ -3,6 +3,8 @@ pub mod registers;
 
 use registers::Registers;
 
+use crate::model::HardwareModel;
+
 pub trait Memory {
     fn read8(&self, address: u16) -> u8;
     fn write8(&mut self, address: u16, value: u8);
@@ -20,6 +22,10 @@ pub trait Memory {
 
     fn cpu_idle(&mut self) {
         self.tick(4);
+    }
+
+    fn stop(&mut self) -> bool {
+        false
     }
 
     fn read16(&self, address: u16) -> u16 {
@@ -46,8 +52,23 @@ pub struct Cpu {
 
 impl Cpu {
     pub fn post_boot() -> Self {
+        Self::post_boot_for_model(HardwareModel::Dmg)
+    }
+
+    pub fn post_boot_for_model(model: HardwareModel) -> Self {
+        let registers = match model {
+            HardwareModel::Dmg => Registers::post_boot(),
+            HardwareModel::Cgb => {
+                let mut registers = Registers::post_boot();
+                registers.set_af(0x1180);
+                registers.set_bc(0x0000);
+                registers.set_de(0xff56);
+                registers.set_hl(0x000d);
+                registers
+            }
+        };
         Self {
-            registers: Registers::post_boot(),
+            registers,
             ime: false,
             ime_enable_delay: 0,
             halted: false,

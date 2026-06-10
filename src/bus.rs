@@ -2,11 +2,12 @@ use crate::{
     cartridge::{Cartridge, CartridgeHeader},
     cpu::Memory,
     joypad::{Joypad, JoypadButton},
+    model::HardwareModel,
     ppu::{Ppu, framebuffer::Framebuffer},
     timer::Timer,
 };
 
-const WRAM_SIZE: usize = 0x2000;
+const WRAM_SIZE: usize = 0x8000;
 const OAM_SIZE: u16 = 0x00a0;
 const IO_SIZE: usize = 0x0080;
 const HRAM_SIZE: usize = 0x007f;
@@ -36,10 +37,18 @@ pub struct Bus {
     dma_cycle: u8,
     dma_active: bool,
     frame_ready: bool,
+    model: HardwareModel,
+    double_speed: bool,
+    speed_switch_armed: bool,
+    wram_bank: u8,
 }
 
 impl Bus {
     pub fn new(cartridge: Cartridge) -> Self {
+        Self::with_model(cartridge, HardwareModel::Dmg)
+    }
+
+    pub fn with_model(cartridge: Cartridge, model: HardwareModel) -> Self {
         Self {
             cartridge,
             wram: [0; WRAM_SIZE],
@@ -55,6 +64,10 @@ impl Bus {
             dma_cycle: 0,
             dma_active: false,
             frame_ready: false,
+            model,
+            double_speed: false,
+            speed_switch_armed: false,
+            wram_bank: 1,
         }
     }
 
@@ -66,7 +79,12 @@ impl Bus {
         if self.timer.tick(cycles) {
             self.request_interrupt(Interrupt::Timer);
         }
-        let ppu_events = self.ppu.tick(cycles);
+        let ppu_cycles = if self.double_speed {
+            cycles / 2
+        } else {
+            cycles
+        };
+        let ppu_events = self.ppu.tick(ppu_cycles);
         if ppu_events.vblank_interrupt {
             self.request_interrupt(Interrupt::VBlank);
         }
@@ -95,6 +113,14 @@ impl Bus {
 
     pub fn cartridge_header(&self) -> &CartridgeHeader {
         self.cartridge.header()
+    }
+
+    pub fn model(&self) -> HardwareModel {
+        self.model
+    }
+
+    pub fn double_speed(&self) -> bool {
+        self.double_speed
     }
 
     pub fn peek_byte(&self, address: u16) -> u8 {
@@ -136,8 +162,8 @@ impl Bus {
             0x0000..=0x7fff => self.cartridge.read_rom(address),
             0x8000..=0x9fff => self.ppu.read_vram(address),
             0xa000..=0xbfff => self.cartridge.read_ram(address),
-            0xc000..=0xdfff => self.wram[(address - 0xc000) as usize],
-            0xe000..=0xfdff => self.wram[(address - 0xe000) as usize],
+            0xc000..=0xdfff => self.read_wram(address),
+            0xe000..=0xfdff => self.read_wram(address - 0x2000),
             0xfe00..=0xfe9f => self.ppu.read_oam(address),
             0xfea0..=0xfeff => 0xff,
             0xff00 => self.joypad.read(),
@@ -147,7 +173,12 @@ impl Bus {
             0xff0f => self.interrupt_flags,
             0xff10..=0xff3f => self.io[(address - 0xff00) as usize],
             0xff40..=0xff4b => self.ppu.read_register(address),
+            0xff4d if self.model == HardwareModel::Cgb => {
+                0x7e | (u8::from(self.double_speed) << 7) | u8::from(self.speed_switch_armed)
+            }
             0xff4d => 0xff,
+            0xff4f if self.model == HardwareModel::Cgb => 0xfe | self.ppu.vram_bank(),
+            0xff70 if self.model == HardwareModel::Cgb => 0xf8 | self.wram_bank,
             0xff4c..=0xff7f => self.io[(address - 0xff00) as usize],
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize],
             0xffff => self.interrupt_enable,
@@ -159,8 +190,8 @@ impl Bus {
             0x0000..=0x7fff => self.cartridge.write_rom(address, value),
             0x8000..=0x9fff => self.ppu.write_vram(address, value),
             0xa000..=0xbfff => self.cartridge.write_ram(address, value),
-            0xc000..=0xdfff => self.wram[(address - 0xc000) as usize] = value,
-            0xe000..=0xfdff => self.wram[(address - 0xe000) as usize] = value,
+            0xc000..=0xdfff => self.write_wram(address, value),
+            0xe000..=0xfdff => self.write_wram(address - 0x2000, value),
             0xfe00..=0xfe9f => self.ppu.write_oam(address, value),
             0xfea0..=0xfeff => {}
             0xff00 => {
@@ -182,7 +213,17 @@ impl Bus {
                 self.dma_active = true;
             }
             0xff47..=0xff4b => self.ppu.write_register(address, value),
+            0xff4d if self.model == HardwareModel::Cgb => {
+                self.speed_switch_armed = value & 0x01 != 0;
+            }
             0xff4d => {}
+            0xff4f if self.model == HardwareModel::Cgb => self.ppu.set_vram_bank(value),
+            0xff70 if self.model == HardwareModel::Cgb => {
+                self.wram_bank = value & 0x07;
+                if self.wram_bank == 0 {
+                    self.wram_bank = 1;
+                }
+            }
             0xff4c..=0xff7f => self.io[(address - 0xff00) as usize] = value,
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize] = value,
             0xffff => self.interrupt_enable = value,
@@ -215,6 +256,23 @@ impl Bus {
             _ => self.read_unrestricted(address),
         }
     }
+
+    fn wram_index(&self, address: u16) -> usize {
+        match address {
+            0xc000..=0xcfff => (address - 0xc000) as usize,
+            0xd000..=0xdfff => usize::from(self.wram_bank) * 0x1000 + (address - 0xd000) as usize,
+            _ => unreachable!("WRAM 地址必须位于 C000-DFFF"),
+        }
+    }
+
+    fn read_wram(&self, address: u16) -> u8 {
+        self.wram[self.wram_index(address)]
+    }
+
+    fn write_wram(&mut self, address: u16, value: u8) {
+        let index = self.wram_index(address);
+        self.wram[index] = value;
+    }
 }
 
 impl Memory for Bus {
@@ -229,11 +287,20 @@ impl Memory for Bus {
     fn tick(&mut self, cycles: u8) {
         Bus::tick(self, u32::from(cycles));
     }
+
+    fn stop(&mut self) -> bool {
+        if self.model != HardwareModel::Cgb || !self.speed_switch_armed {
+            return false;
+        }
+        self.double_speed = !self.double_speed;
+        self.speed_switch_armed = false;
+        true
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{cartridge::Cartridge, cpu::Memory};
+    use crate::{cartridge::Cartridge, cpu::Memory, model::HardwareModel};
 
     use super::*;
 
@@ -245,6 +312,19 @@ mod tests {
         rom[0x149] = 0x00;
         rom[0x0150] = 0x42;
         Bus::new(Cartridge::from_bytes(rom).expect("测试卡带应有效"))
+    }
+
+    fn cgb_bus() -> Bus {
+        let mut rom = vec![0; 32 * 1024];
+        rom[0x134..0x137].copy_from_slice(b"CGB");
+        rom[0x143] = 0x80;
+        rom[0x147] = 0x00;
+        rom[0x148] = 0x00;
+        rom[0x149] = 0x00;
+        Bus::with_model(
+            Cartridge::from_bytes(rom).expect("测试卡带应有效"),
+            HardwareModel::Cgb,
+        )
     }
 
     #[test]
@@ -309,6 +389,49 @@ mod tests {
         assert_eq!(bus.read8(0xff4d), 0xff);
         bus.write8(0xff4d, 0x01);
         assert_eq!(bus.read8(0xff4d), 0xff);
+    }
+
+    #[test]
+    fn cgb_key1_arms_and_switches_double_speed() {
+        let mut bus = cgb_bus();
+
+        assert_eq!(bus.read8(0xff4d), 0x7e);
+        bus.write8(0xff4d, 0x01);
+        assert_eq!(bus.read8(0xff4d), 0x7f);
+        assert!(Memory::stop(&mut bus));
+        assert_eq!(bus.read8(0xff4d), 0xfe);
+        assert!(bus.double_speed());
+    }
+
+    #[test]
+    fn cgb_switches_wram_banks_and_maps_zero_to_one() {
+        let mut bus = cgb_bus();
+
+        bus.write8(0xff70, 0x02);
+        bus.write8(0xd000, 0x22);
+        bus.write8(0xff70, 0x03);
+        bus.write8(0xd000, 0x33);
+        assert_eq!(bus.read8(0xd000), 0x33);
+
+        bus.write8(0xff70, 0x02);
+        assert_eq!(bus.read8(0xd000), 0x22);
+        bus.write8(0xff70, 0x00);
+        assert_eq!(bus.read8(0xff70) & 0x07, 1);
+    }
+
+    #[test]
+    fn cgb_switches_cpu_visible_vram_bank() {
+        let mut bus = cgb_bus();
+        bus.write8(0xff40, 0x00);
+
+        bus.write8(0xff4f, 0x00);
+        bus.write8(0x8000, 0x11);
+        bus.write8(0xff4f, 0x01);
+        bus.write8(0x8000, 0x22);
+        assert_eq!(bus.read8(0x8000), 0x22);
+
+        bus.write8(0xff4f, 0x00);
+        assert_eq!(bus.read8(0x8000), 0x11);
     }
 
     #[test]

@@ -166,7 +166,9 @@ impl Cpu {
             }
             0x10 => {
                 self.registers.pc = self.registers.pc.wrapping_add(1);
-                self.halted = true;
+                if !memory.stop() {
+                    self.halted = true;
+                }
                 Ok(4)
             }
             0x17 => {

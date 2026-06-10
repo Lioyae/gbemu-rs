@@ -5,6 +5,7 @@ use crate::{
     cartridge::{Cartridge, CartridgeError, CartridgeHeader},
     cpu::{Cpu, instruction::CpuError},
     joypad::JoypadButton,
+    model::{HardwareModel, ModelPreference},
     ppu::framebuffer::Framebuffer,
 };
 
@@ -14,6 +15,8 @@ pub enum EmulatorError {
     Cartridge(#[from] CartridgeError),
     #[error(transparent)]
     Cpu(#[from] CpuError),
+    #[error("该卡带要求使用 Game Boy Color 模式")]
+    CgbRequired,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -27,15 +30,29 @@ pub struct Emulator {
     cpu: Cpu,
     bus: Bus,
     paused: bool,
+    model: HardwareModel,
 }
 
 impl Emulator {
     pub fn from_rom(rom: Vec<u8>) -> Result<Self, EmulatorError> {
+        Self::from_rom_with_preference(rom, ModelPreference::Auto)
+    }
+
+    pub fn from_rom_with_preference(
+        rom: Vec<u8>,
+        preference: ModelPreference,
+    ) -> Result<Self, EmulatorError> {
         let cartridge = Cartridge::from_bytes(rom)?;
+        let support = cartridge.header().cgb_support();
+        if support == crate::cartridge::CgbSupport::Required && preference == ModelPreference::Dmg {
+            return Err(EmulatorError::CgbRequired);
+        }
+        let model = preference.resolve(support);
         Ok(Self {
-            cpu: Cpu::post_boot(),
-            bus: Bus::new(cartridge),
+            cpu: Cpu::post_boot_for_model(model),
+            bus: Bus::with_model(cartridge, model),
             paused: false,
+            model,
         })
     }
 
@@ -49,6 +66,10 @@ impl Emulator {
 
     pub fn cartridge_header(&self) -> &CartridgeHeader {
         self.bus.cartridge_header()
+    }
+
+    pub fn model(&self) -> HardwareModel {
+        self.model
     }
 
     pub fn paused(&self) -> bool {
@@ -113,6 +134,7 @@ mod tests {
     use crate::{
         cpu::{Memory, registers::Flag},
         joypad::JoypadButton,
+        model::{HardwareModel, ModelPreference},
     };
 
     use super::*;
@@ -127,6 +149,12 @@ mod tests {
         rom
     }
 
+    fn cgb_rom(flag: u8) -> Vec<u8> {
+        let mut rom = test_rom(&[0x00]);
+        rom[0x143] = flag;
+        rom
+    }
+
     #[test]
     fn starts_with_post_boot_cpu_and_hardware_state() {
         let emulator = Emulator::from_rom(test_rom(&[0x00])).expect("测试 ROM 应加载成功");
@@ -136,6 +164,30 @@ mod tests {
         assert_eq!(emulator.read_memory(0xff40), 0x91);
         assert_eq!(emulator.read_memory(0xff47), 0xfc);
         assert!(!emulator.paused());
+    }
+
+    #[test]
+    fn automatically_selects_cgb_for_compatible_and_required_roms() {
+        for flag in [0x80, 0xc0] {
+            let emulator = Emulator::from_rom(cgb_rom(flag)).expect("CGB ROM 应加载成功");
+            assert_eq!(emulator.model(), HardwareModel::Cgb);
+            assert_eq!(emulator.cpu().registers().a, 0x11);
+        }
+    }
+
+    #[test]
+    fn allows_model_override_for_dual_mode_rom() {
+        let emulator = Emulator::from_rom_with_preference(cgb_rom(0x80), ModelPreference::Dmg)
+            .expect("双模式 ROM 应允许强制 DMG");
+
+        assert_eq!(emulator.model(), HardwareModel::Dmg);
+    }
+
+    #[test]
+    fn rejects_dmg_override_for_cgb_only_rom() {
+        let result = Emulator::from_rom_with_preference(cgb_rom(0xc0), ModelPreference::Dmg);
+
+        assert!(matches!(result, Err(EmulatorError::CgbRequired)));
     }
 
     #[test]
