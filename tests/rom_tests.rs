@@ -149,15 +149,15 @@ fn provided_cgb_game_smoke() {
 }
 
 #[test]
-#[ignore = "需要用户提供 roms/Pocket Yellow.gb"]
+#[ignore = "需要用户提供 roms/Pocket-Yellow.gb"]
 fn provided_large_mbc_game_smoke() {
-    run_frame_smoke("roms/Pocket Yellow.gb", 300);
+    run_frame_smoke("roms/Pocket-Yellow.gb", 300);
 }
 
 #[test]
-#[ignore = "需要用户提供 roms/GB War.gb"]
+#[ignore = "需要用户提供 roms/GB-War.gb"]
 fn provided_gb_war_smoke() {
-    run_frame_smoke("roms/GB War.gb", 300);
+    run_frame_smoke("roms/GB-War.gb", 300);
 }
 
 fn run_frame_smoke(path: &str, frame_count: usize) {
