@@ -1,27 +1,28 @@
+#[path = "common/test_rom.rs"]
+mod test_rom;
+
 use gbmeu::{
     boot::{BootError, BootRoms},
     emulator::Emulator,
     model::{HardwareModel, ModelPreference},
 };
 use std::process::Command;
+use test_rom::TestRom;
 
 fn dmg_rom() -> Vec<u8> {
-    let mut rom = vec![0; 32 * 1024];
-    rom[0x0000] = 0x42;
-    rom[0x0100] = 0x00;
-    rom[0x134..0x138].copy_from_slice(b"BOOT");
-    rom[0x147] = 0x00;
-    rom[0x148] = 0x00;
-    rom[0x149] = 0x00;
-    rom
+    TestRom::new("BOOT")
+        .write(0x0000, &[0x42])
+        .write(0x0100, &[0x00])
+        .build()
 }
 
 fn cgb_rom() -> Vec<u8> {
-    let mut rom = dmg_rom();
-    rom[0x0100] = 0x77;
-    rom[0x0200] = 0x55;
-    rom[0x143] = 0xc0;
-    rom
+    TestRom::new("BOOT")
+        .cgb_flag(0xc0)
+        .write(0x0000, &[0x42])
+        .write(0x0100, &[0x77])
+        .write(0x0200, &[0x55])
+        .build()
 }
 
 #[test]

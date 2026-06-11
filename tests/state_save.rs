@@ -1,3 +1,6 @@
+#[path = "common/test_rom.rs"]
+mod test_rom;
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -8,16 +11,12 @@ use gbmeu::{
     emulator::Emulator,
     save::{StatePaths, StateSave},
 };
+use test_rom::TestRom;
 
 fn test_rom(title: &[u8]) -> Vec<u8> {
-    let mut rom = vec![0; 32 * 1024];
-    rom[0x100..0x104].copy_from_slice(&[0x3e, 0x42, 0xea, 0x00]);
-    rom[0x104..0x107].copy_from_slice(&[0xc0, 0x18, 0xf9]);
-    rom[0x134..0x134 + title.len()].copy_from_slice(title);
-    rom[0x147] = 0x00;
-    rom[0x148] = 0x00;
-    rom[0x149] = 0x00;
-    rom
+    TestRom::new(std::str::from_utf8(title).expect("测试 ROM 标题应为 UTF-8"))
+        .write(0x0100, &[0x3e, 0x42, 0xea, 0x00, 0xc0, 0x18, 0xf9])
+        .build()
 }
 
 fn temporary_directory(name: &str) -> PathBuf {

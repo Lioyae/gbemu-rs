@@ -2,23 +2,34 @@ mod common;
 
 use std::fs;
 
-use common::{RomTestStatus, run_rom_bytes, run_rom_file};
+use common::{RomTestStatus, TestRom, run_rom_bytes, run_rom_file};
 use gbmeu::emulator::Emulator;
 
 fn serial_test_rom(message: &str) -> Vec<u8> {
-    let mut rom = vec![0; 32 * 1024];
+    let mut rom = TestRom::new("TEST");
     let mut cursor = 0x0100;
     for byte in message.bytes() {
         let instructions = [0x3e, byte, 0xe0, 0x01, 0x3e, 0x81, 0xe0, 0x02];
-        rom[cursor..cursor + instructions.len()].copy_from_slice(&instructions);
+        rom = rom.write(cursor, &instructions);
         cursor += instructions.len();
     }
-    rom[cursor..cursor + 2].copy_from_slice(&[0x18, 0xfe]);
-    rom[0x134..0x138].copy_from_slice(b"TEST");
-    rom[0x147] = 0x00;
-    rom[0x148] = 0x00;
-    rom[0x149] = 0x00;
-    rom
+    rom.write(cursor, &[0x18, 0xfe]).build()
+}
+
+#[test]
+fn minimal_test_rom_builder_writes_header_and_program() {
+    let rom = TestRom::new("GBC TEST")
+        .cgb_flag(0xc0)
+        .cartridge(0x03, 0x02)
+        .write(0x0100, &[0x3e, 0x42])
+        .build();
+
+    assert_eq!(rom.len(), 32 * 1024);
+    assert_eq!(&rom[0x134..0x13c], b"GBC TEST");
+    assert_eq!(rom[0x143], 0xc0);
+    assert_eq!(rom[0x147], 0x03);
+    assert_eq!(rom[0x149], 0x02);
+    assert_eq!(&rom[0x0100..0x0102], &[0x3e, 0x42]);
 }
 
 #[test]

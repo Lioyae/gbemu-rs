@@ -2,6 +2,10 @@ use std::{fs, path::Path};
 
 use gbmeu::emulator::{Emulator, EmulatorError};
 
+mod test_rom;
+
+pub use test_rom::TestRom;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RomTestStatus {
     Passed,
