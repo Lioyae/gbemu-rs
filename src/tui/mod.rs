@@ -16,7 +16,9 @@ use crossterm::{
     cursor::{Hide, Show},
     event::{self, Event},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{
+        EnterAlternateScreen, LeaveAlternateScreen, SetSize, disable_raw_mode, enable_raw_mode,
+    },
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use thiserror::Error;
@@ -43,6 +45,7 @@ pub enum TuiError {
 }
 
 pub fn run(emulator: Emulator, rom_path: PathBuf) -> Result<()> {
+    prepare_terminal_for_mode(ViewMode::Game);
     let _guard = TerminalGuard::enter().context("无法初始化终端")?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend).context("无法创建终端绘制后端")?;
@@ -78,10 +81,7 @@ pub fn run(emulator: Emulator, rom_path: PathBuf) -> Result<()> {
 }
 
 pub fn validate_size(width: u16, height: u16, mode: ViewMode) -> Result<(), TuiError> {
-    let (required_width, required_height, mode_name) = match mode {
-        ViewMode::Game => (162, 76, "游戏"),
-        ViewMode::Debugger => (120, 36, "调试"),
-    };
+    let (required_width, required_height, mode_name) = required_size(mode);
     if width < required_width || height < required_height {
         return Err(TuiError::TerminalTooSmall {
             actual_width: width,
@@ -92,6 +92,33 @@ pub fn validate_size(width: u16, height: u16, mode: ViewMode) -> Result<(), TuiE
         });
     }
     Ok(())
+}
+
+fn required_size(mode: ViewMode) -> (u16, u16, &'static str) {
+    match mode {
+        ViewMode::Game => (162, 76, "游戏"),
+        ViewMode::Debugger => (120, 36, "调试"),
+    }
+}
+
+fn resize_target(width: u16, height: u16, mode: ViewMode) -> Option<(u16, u16)> {
+    let (required_width, required_height, _) = required_size(mode);
+    if width >= required_width && height >= required_height {
+        return None;
+    }
+
+    Some((width.max(required_width), height.max(required_height)))
+}
+
+fn prepare_terminal_for_mode(mode: ViewMode) {
+    let Ok((width, height)) = crossterm::terminal::size() else {
+        return;
+    };
+    let Some((target_width, target_height)) = resize_target(width, height, mode) else {
+        return;
+    };
+
+    let _ = execute!(io::stdout(), SetSize(target_width, target_height));
 }
 
 struct TerminalGuard;
@@ -126,5 +153,18 @@ mod tests {
         assert!(validate_size(161, 76, crate::app::ViewMode::Game).is_err());
         assert!(validate_size(120, 36, crate::app::ViewMode::Debugger).is_ok());
         assert!(validate_size(119, 36, crate::app::ViewMode::Debugger).is_err());
+    }
+
+    #[test]
+    fn requests_only_missing_terminal_dimensions() {
+        assert_eq!(
+            resize_target(120, 30, crate::app::ViewMode::Game),
+            Some((162, 76))
+        );
+        assert_eq!(
+            resize_target(200, 30, crate::app::ViewMode::Game),
+            Some((200, 76))
+        );
+        assert_eq!(resize_target(200, 80, crate::app::ViewMode::Game), None);
     }
 }

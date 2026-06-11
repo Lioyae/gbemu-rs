@@ -1,4 +1,9 @@
-use std::{fs, path::PathBuf};
+use std::{
+    env, fs,
+    io::{self, IsTerminal, Write},
+    path::PathBuf,
+    process::ExitCode,
+};
 
 use anyhow::{Context, Result};
 use clap::{ArgAction, Parser, ValueEnum};
@@ -56,7 +61,25 @@ impl From<CliModel> for ModelPreference {
     }
 }
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("程序运行失败：{error:#}");
+
+            if should_pause_after_error(env::args_os().len(), io::stdin().is_terminal()) {
+                eprint!("\n按 Enter 键退出...");
+                let _ = io::stderr().flush();
+                let mut input = String::new();
+                let _ = io::stdin().read_line(&mut input);
+            }
+
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
     let rom_path = match cli.rom {
         Some(path) => path,
@@ -77,9 +100,25 @@ fn main() -> Result<()> {
     tui::run(emulator, rom_path)
 }
 
+fn should_pause_after_error(argument_count: usize, stdin_is_terminal: bool) -> bool {
+    argument_count == 1 && stdin_is_terminal
+}
+
 fn read_optional_file(path: Option<&PathBuf>) -> Result<Option<Vec<u8>>> {
     path.map(|path| {
         fs::read(path).with_context(|| format!("无法读取 Boot ROM 文件：{}", path.display()))
     })
     .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_pauses_for_interactive_launch_without_arguments() {
+        assert!(should_pause_after_error(1, true));
+        assert!(!should_pause_after_error(2, true));
+        assert!(!should_pause_after_error(1, false));
+    }
 }
