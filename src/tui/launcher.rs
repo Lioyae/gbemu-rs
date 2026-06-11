@@ -89,6 +89,13 @@ impl Launcher {
         self.update_scan_status();
     }
 
+    fn refresh_current_view(&mut self) {
+        match self.mode {
+            LauncherMode::Library => self.rescan(),
+            LauncherMode::Browser => self.refresh_browser(),
+        }
+    }
+
     fn refresh_browser(&mut self) {
         let mut directories = Vec::new();
         let mut roms = Vec::new();
@@ -224,7 +231,7 @@ pub fn select_rom() -> Result<Option<PathBuf>> {
                         LauncherMode::Browser => LauncherMode::Library,
                     };
                 }
-                KeyCode::Char('r' | 'R') => launcher.rescan(),
+                KeyCode::F(5) | KeyCode::Char('r' | 'R') => launcher.refresh_current_view(),
                 KeyCode::Char('a' | 'A') if launcher.mode == LauncherMode::Browser => {
                     launcher.add_browser_directory()?;
                 }
@@ -271,9 +278,9 @@ fn render(frame: &mut Frame, launcher: &Launcher) {
     }
 
     let help = match launcher.mode {
-        LauncherMode::Library => "↑↓ 选择  Enter 启动  F2/Tab 文件浏览器  R 重扫  Q/Esc 退出",
+        LauncherMode::Library => "↑↓ 选择  Enter 启动  F2/Tab 文件浏览器  F5/R 重扫  Q/Esc 退出",
         LauncherMode::Browser => {
-            "↑↓ 选择  Enter 打开/启动  Backspace 上级  A 添加目录  D 移除目录  Esc 返回"
+            "↑↓ 选择  Enter 打开/启动  F5/R 刷新  Backspace 上级  A 添加  D 移除  Esc 返回"
         }
     };
     frame.render_widget(
@@ -521,5 +528,27 @@ mod tests {
         assert!(detail.contains("RTC 存档：已存在"));
         assert!(detail.contains("即时存档：槽位 2、7"));
         assert_eq!(save_marker(&entry), " [有存档]");
+    }
+
+    #[test]
+    fn refreshes_the_current_launcher_view() {
+        let mut launcher = Launcher {
+            config: LibraryConfig::default(),
+            scan: ScanResult::default(),
+            selected: 0,
+            mode: LauncherMode::Library,
+            browser_directory: PathBuf::from("missing-directory"),
+            browser_entries: vec![BrowserEntry::Rom(PathBuf::from("stale.gb"))],
+            browser_selected: 0,
+            status: String::new(),
+        };
+
+        launcher.refresh_current_view();
+        assert_eq!(launcher.status, "已发现 0 个 ROM，0 个文件无法识别");
+
+        launcher.mode = LauncherMode::Browser;
+        launcher.refresh_current_view();
+        assert!(launcher.browser_entries.is_empty());
+        assert!(launcher.status.starts_with("无法读取目录："));
     }
 }
