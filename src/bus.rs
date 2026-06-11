@@ -243,20 +243,28 @@ impl Bus {
             0xff0f => self.interrupt_flags,
             0xff10..=0xff3f => self.io[(address - 0xff00) as usize],
             0xff40..=0xff4b => self.ppu.read_register(address),
+            0xff4c if self.model == HardwareModel::Cgb => self.io[(address - 0xff00) as usize],
+            0xff4c => 0xff,
             0xff4d if self.model == HardwareModel::Cgb => {
                 0x7e | (u8::from(self.double_speed) << 7) | u8::from(self.speed_switch_armed)
             }
             0xff4d => 0xff,
             0xff4f if self.model == HardwareModel::Cgb => 0xfe | self.ppu.vram_bank(),
+            0xff4f => 0xff,
             0xff50 => u8::from(!self.boot_rom_enabled),
             0xff51..=0xff54 if self.model == HardwareModel::Cgb => 0xff,
             0xff55 if self.model == HardwareModel::Cgb => self.hdma_status(),
+            0xff51..=0xff55 => 0xff,
             0xff56 if self.model == HardwareModel::Cgb => {
                 (self.io[(address - 0xff00) as usize] & 0xc1) | 0x3e
             }
             0xff56 => 0xff,
             0xff68..=0xff6b if self.model == HardwareModel::Cgb => self.ppu.read_register(address),
+            0xff68..=0xff6b => 0xff,
+            0xff6c if self.model == HardwareModel::Cgb => self.io[(address - 0xff00) as usize],
+            0xff6c => 0xff,
             0xff70 if self.model == HardwareModel::Cgb => 0xf8 | self.wram_bank,
+            0xff70 => 0xff,
             0xff72..=0xff74 if self.model == HardwareModel::Cgb => {
                 self.io[(address - 0xff00) as usize]
             }
@@ -264,7 +272,9 @@ impl Bus {
                 0x8f | (self.io[(address - 0xff00) as usize] & 0x70)
             }
             0xff72..=0xff75 => 0xff,
-            0xff4c..=0xff7f => self.io[(address - 0xff00) as usize],
+            0xff4e | 0xff57..=0xff67 | 0xff6d..=0xff6f | 0xff71 | 0xff76..=0xff7f => {
+                self.io[(address - 0xff00) as usize]
+            }
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize],
             0xffff => self.interrupt_enable,
         }
@@ -299,12 +309,18 @@ impl Bus {
                 self.dma_active = true;
             }
             0xff47..=0xff4b => self.ppu.write_register(address, value),
+            0xff4c if self.model == HardwareModel::Cgb => {
+                self.io[(address - 0xff00) as usize] = value;
+            }
+            0xff4c => {}
             0xff4d if self.model == HardwareModel::Cgb => {
                 self.speed_switch_armed = value & 0x01 != 0;
             }
             0xff4d => {}
             0xff4f if self.model == HardwareModel::Cgb => self.ppu.set_vram_bank(value),
+            0xff4f => {}
             0xff50 if value != 0 => self.boot_rom_enabled = false,
+            0xff50 => {}
             0xff51 if self.model == HardwareModel::Cgb => {
                 self.hdma_source = (u16::from(value) << 8) | (self.hdma_source & 0x00f0);
             }
@@ -320,6 +336,7 @@ impl Bus {
                     (self.hdma_destination & 0x1f00) | 0x8000 | u16::from(value & 0xf0);
             }
             0xff55 if self.model == HardwareModel::Cgb => self.start_hdma(value),
+            0xff51..=0xff55 => {}
             0xff56 if self.model == HardwareModel::Cgb => {
                 self.io[(address - 0xff00) as usize] = value & 0xc1;
             }
@@ -327,12 +344,18 @@ impl Bus {
             0xff68..=0xff6b if self.model == HardwareModel::Cgb => {
                 self.ppu.write_register(address, value);
             }
+            0xff68..=0xff6b => {}
+            0xff6c if self.model == HardwareModel::Cgb => {
+                self.io[(address - 0xff00) as usize] = value;
+            }
+            0xff6c => {}
             0xff70 if self.model == HardwareModel::Cgb => {
                 self.wram_bank = value & 0x07;
                 if self.wram_bank == 0 {
                     self.wram_bank = 1;
                 }
             }
+            0xff70 => {}
             0xff72..=0xff74 if self.model == HardwareModel::Cgb => {
                 self.io[(address - 0xff00) as usize] = value;
             }
@@ -340,7 +363,9 @@ impl Bus {
                 self.io[(address - 0xff00) as usize] = value & 0x70;
             }
             0xff72..=0xff75 => {}
-            0xff4c..=0xff7f => self.io[(address - 0xff00) as usize] = value,
+            0xff4e | 0xff57..=0xff67 | 0xff6d..=0xff6f | 0xff71 | 0xff76..=0xff7f => {
+                self.io[(address - 0xff00) as usize] = value;
+            }
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize] = value,
             0xffff => self.interrupt_enable = value,
         }
@@ -813,6 +838,20 @@ mod tests {
         for address in 0xff72..=0xff75 {
             bus.write8(address, 0x00);
             assert_eq!(bus.read8(address), 0xff);
+        }
+    }
+
+    #[test]
+    fn dmg_hides_cgb_memory_dma_and_palette_registers() {
+        let mut bus = test_bus();
+        let addresses = [
+            0xff4c, 0xff4f, 0xff51, 0xff52, 0xff53, 0xff54, 0xff55, 0xff68, 0xff69, 0xff6a, 0xff6b,
+            0xff6c, 0xff70,
+        ];
+
+        for address in addresses {
+            bus.write8(address, 0x00);
+            assert_eq!(bus.read8(address), 0xff, "地址 {address:04X}");
         }
     }
 
