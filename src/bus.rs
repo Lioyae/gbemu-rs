@@ -70,10 +70,14 @@ impl Bus {
         boot_rom: Option<BootRom>,
     ) -> Self {
         let boot_rom_enabled = boot_rom.is_some();
+        let mut io = vec![0; IO_SIZE];
+        if model == HardwareModel::Cgb && !boot_rom_enabled {
+            io[(0xff4c - 0xff00) as usize] = 0x80;
+        }
         Self {
             cartridge,
             wram: vec![0; WRAM_SIZE],
-            io: vec![0; IO_SIZE],
+            io,
             hram: vec![0; HRAM_SIZE],
             timer: Timer::new(),
             serial: Serial::new(model),
@@ -309,7 +313,7 @@ impl Bus {
                 self.dma_active = true;
             }
             0xff47..=0xff4b => self.ppu.write_register(address, value),
-            0xff4c if self.model == HardwareModel::Cgb => {
+            0xff4c if self.model == HardwareModel::Cgb && self.boot_rom_enabled => {
                 self.io[(address - 0xff00) as usize] = value;
             }
             0xff4c => {}
@@ -484,7 +488,7 @@ impl Memory for Bus {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cartridge::Cartridge, cpu::Memory, model::HardwareModel};
+    use crate::{boot::BootRoms, cartridge::Cartridge, cpu::Memory, model::HardwareModel};
 
     use super::*;
 
@@ -585,6 +589,34 @@ mod tests {
         assert!(Memory::stop(&mut bus));
         assert_eq!(bus.read8(0xff4d), 0xfe);
         assert!(bus.double_speed());
+    }
+
+    #[test]
+    fn cgb_key0_is_writable_only_while_boot_rom_is_mapped() {
+        let mut post_boot = cgb_bus();
+        assert_eq!(post_boot.read8(0xff4c), 0x80);
+        post_boot.write8(0xff4c, 0x04);
+        assert_eq!(post_boot.read8(0xff4c), 0x80);
+
+        let boot_rom = BootRoms::from_bytes(None, Some(vec![0; 0x900]))
+            .expect("CGB Boot ROM 应有效")
+            .into_model(HardwareModel::Cgb)
+            .expect("CGB 模式应选择 CGB Boot ROM");
+        let mut booting = Bus::with_model_and_boot_rom(
+            Cartridge::from_bytes({
+                let mut rom = vec![0; 32 * 1024];
+                rom[0x143] = 0x80;
+                rom
+            })
+            .expect("测试卡带应有效"),
+            HardwareModel::Cgb,
+            boot_rom,
+        );
+        booting.write8(0xff4c, 0x04);
+        assert_eq!(booting.read8(0xff4c), 0x04);
+        booting.write8(0xff50, 0x01);
+        booting.write8(0xff4c, 0x80);
+        assert_eq!(booting.read8(0xff4c), 0x04);
     }
 
     #[test]
