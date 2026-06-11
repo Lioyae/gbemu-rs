@@ -38,10 +38,17 @@ impl Timer {
                 self.apply_falling_edge(old_signal);
             }
             0xff05 => {
-                self.tima = value;
-                self.reload_delay = None;
+                if self.reload_delay != Some(0) {
+                    self.tima = value;
+                    self.reload_delay = None;
+                }
             }
-            0xff06 => self.tma = value,
+            0xff06 => {
+                self.tma = value;
+                if self.reload_delay == Some(0) {
+                    self.tima = value;
+                }
+            }
             0xff07 => {
                 let old_signal = self.timer_signal();
                 self.tac = value & 0x07;
@@ -55,12 +62,14 @@ impl Timer {
         let mut request_interrupt = false;
         for _ in 0..cycles {
             if let Some(delay) = self.reload_delay {
-                if delay == 1 {
-                    self.tima = self.tma;
-                    self.reload_delay = None;
-                    request_interrupt = true;
-                } else {
-                    self.reload_delay = Some(delay - 1);
+                match delay {
+                    0 => self.reload_delay = None,
+                    1 => {
+                        self.tima = self.tma;
+                        self.reload_delay = Some(0);
+                        request_interrupt = true;
+                    }
+                    _ => self.reload_delay = Some(delay - 1),
                 }
             }
 
@@ -169,6 +178,28 @@ mod tests {
         timer.write(0xff05, 0x77);
 
         assert!(!timer.tick(4));
+        assert_eq!(timer.read(0xff05), 0x77);
+    }
+
+    #[test]
+    fn reload_cycle_ignores_tima_write_and_copies_new_tma_value() {
+        let mut timer = Timer::new();
+        timer.write(0xff06, 0x42);
+        timer.write(0xff05, 0xff);
+        timer.write(0xff07, 0x05);
+        timer.tick(16);
+        timer.tick(3);
+
+        assert!(timer.tick(1));
+        assert_eq!(timer.read(0xff05), 0x42);
+        timer.write(0xff05, 0x77);
+        assert_eq!(timer.read(0xff05), 0x42);
+        timer.write(0xff06, 0x66);
+        assert_eq!(timer.read(0xff05), 0x66);
+        assert_eq!(timer.read(0xff06), 0x66);
+
+        timer.tick(1);
+        timer.write(0xff05, 0x77);
         assert_eq!(timer.read(0xff05), 0x77);
     }
 }
