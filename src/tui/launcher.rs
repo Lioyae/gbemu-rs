@@ -19,7 +19,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
-use crate::library::{LibraryConfig, RomEntry, ScanResult, scan_roms};
+use crate::library::{LibraryConfig, RomEntry, ScanError, ScanResult, scan_roms};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum LauncherMode {
@@ -85,8 +85,12 @@ impl Launcher {
 
     fn rescan(&mut self) {
         self.scan = scan_roms(self.config.directories());
-        self.selected = self.selected.min(self.scan.entries.len().saturating_sub(1));
+        self.selected = self.selected.min(self.library_len().saturating_sub(1));
         self.update_scan_status();
+    }
+
+    fn library_len(&self) -> usize {
+        self.scan.entries.len() + self.scan.errors.len()
     }
 
     fn refresh_current_view(&mut self) {
@@ -130,8 +134,9 @@ impl Launcher {
     }
 
     fn move_selection(&mut self, down: bool) {
+        let library_len = self.library_len();
         let (selected, len) = match self.mode {
-            LauncherMode::Library => (&mut self.selected, self.scan.entries.len()),
+            LauncherMode::Library => (&mut self.selected, library_len),
             LauncherMode::Browser => (&mut self.browser_selected, self.browser_entries.len()),
         };
         if len == 0 {
@@ -145,11 +150,19 @@ impl Launcher {
 
     fn activate(&mut self) -> Option<PathBuf> {
         match self.mode {
-            LauncherMode::Library => self
-                .scan
-                .entries
-                .get(self.selected)
-                .map(|entry| entry.path.clone()),
+            LauncherMode::Library => {
+                if let Some(entry) = self.scan.entries.get(self.selected) {
+                    return Some(entry.path.clone());
+                }
+                if let Some(error) = self
+                    .selected
+                    .checked_sub(self.scan.entries.len())
+                    .and_then(|index| self.scan.errors.get(index))
+                {
+                    self.status = format!("无法启动 {}：{}", error.path.display(), error.message);
+                }
+                None
+            }
             LauncherMode::Browser => match self.browser_entries.get(self.browser_selected).cloned()
             {
                 Some(BrowserEntry::Parent(path) | BrowserEntry::Directory(path)) => {
@@ -294,7 +307,7 @@ fn render_library(frame: &mut Frame, launcher: &Launcher, area: Rect) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
         .split(area);
-    let items: Vec<ListItem<'_>> = launcher
+    let mut items: Vec<ListItem<'_>> = launcher
         .scan
         .entries
         .iter()
@@ -306,8 +319,19 @@ fn render_library(frame: &mut Frame, launcher: &Launcher, area: Rect) {
             ]))
         })
         .collect();
+    items.extend(launcher.scan.errors.iter().map(|error| {
+        let name = error
+            .path
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_else(|| error.path.to_string_lossy());
+        ListItem::new(Line::from(vec![
+            Span::styled(name, Style::default().fg(Color::Red)),
+            Span::styled("  [无法识别]", Style::default().fg(Color::Red)),
+        ]))
+    }));
     let mut state = ListState::default()
-        .with_selected((!launcher.scan.entries.is_empty()).then_some(launcher.selected));
+        .with_selected((launcher.library_len() != 0).then_some(launcher.selected));
     frame.render_stateful_widget(
         List::new(items)
             .block(Block::default().borders(Borders::ALL).title(" ROM 库 "))
@@ -326,6 +350,13 @@ fn render_library(frame: &mut Frame, launcher: &Launcher, area: Rect) {
         .entries
         .get(launcher.selected)
         .map(render_rom_detail)
+        .or_else(|| {
+            launcher
+                .selected
+                .checked_sub(launcher.scan.entries.len())
+                .and_then(|index| launcher.scan.errors.get(index))
+                .map(render_scan_error)
+        })
         .unwrap_or_else(|| "ROM 库为空。\n\n按 F2 打开文件浏览器，按 A 添加当前目录。".to_owned());
     frame.render_widget(
         Paragraph::new(detail).block(Block::default().borders(Borders::ALL).title(" 详情 ")),
@@ -390,6 +421,14 @@ fn render_rom_detail(entry: &RomEntry) -> String {
         existence_name(entry.save_status.rtc),
         state_status,
         entry.path.display()
+    )
+}
+
+fn render_scan_error(error: &ScanError) -> String {
+    format!(
+        "状态：无法识别\n\n原因：{}\n\n路径：{}",
+        error.message,
+        error.path.display()
     )
 }
 
@@ -550,5 +589,39 @@ mod tests {
         launcher.refresh_current_view();
         assert!(launcher.browser_entries.is_empty());
         assert!(launcher.status.starts_with("无法读取目录："));
+    }
+
+    #[test]
+    fn shows_scan_errors_but_does_not_activate_them() {
+        let error = crate::library::ScanError {
+            path: PathBuf::from("broken.gbc"),
+            message: "ROM 文件过小".to_owned(),
+        };
+        let mut launcher = Launcher {
+            config: LibraryConfig::default(),
+            scan: ScanResult {
+                entries: vec![rom_entry(
+                    "valid.gb",
+                    "VALID",
+                    crate::cartridge::CgbSupport::DmgOnly,
+                )],
+                errors: vec![error.clone()],
+            },
+            selected: 0,
+            mode: LauncherMode::Library,
+            browser_directory: PathBuf::new(),
+            browser_entries: Vec::new(),
+            browser_selected: 0,
+            status: String::new(),
+        };
+
+        launcher.move_selection(true);
+
+        assert_eq!(launcher.selected, 1);
+        assert_eq!(launcher.activate(), None);
+        assert!(launcher.status.contains("无法启动"));
+        let detail = render_scan_error(&error);
+        assert!(detail.contains("broken.gbc"));
+        assert!(detail.contains("ROM 文件过小"));
     }
 }
