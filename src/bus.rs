@@ -249,14 +249,7 @@ impl Bus {
             0xff4d => 0xff,
             0xff4f if self.model == HardwareModel::Cgb => 0xfe | self.ppu.vram_bank(),
             0xff50 => u8::from(!self.boot_rom_enabled),
-            0xff51 if self.model == HardwareModel::Cgb => (self.hdma_source >> 8) as u8,
-            0xff52 if self.model == HardwareModel::Cgb => self.hdma_source as u8 & 0xf0,
-            0xff53 if self.model == HardwareModel::Cgb => {
-                ((self.hdma_destination - 0x8000) >> 8) as u8 & 0x1f
-            }
-            0xff54 if self.model == HardwareModel::Cgb => {
-                (self.hdma_destination - 0x8000) as u8 & 0xf0
-            }
+            0xff51..=0xff54 if self.model == HardwareModel::Cgb => 0xff,
             0xff55 if self.model == HardwareModel::Cgb => self.hdma_status(),
             0xff68..=0xff6b if self.model == HardwareModel::Cgb => self.ppu.read_register(address),
             0xff70 if self.model == HardwareModel::Cgb => 0xf8 | self.wram_bank,
@@ -617,6 +610,43 @@ mod tests {
         bus.tick(456);
         assert_eq!(bus.peek_byte(0x801f), 0x9f);
         assert_eq!(bus.read8(0xff55), 0xff);
+    }
+
+    #[test]
+    fn cgb_hdma_address_registers_are_write_only() {
+        let mut bus = cgb_bus();
+
+        bus.write8(0xff51, 0xc1);
+        bus.write8(0xff52, 0x2f);
+        bus.write8(0xff53, 0x9f);
+        bus.write8(0xff54, 0x3f);
+
+        assert_eq!(bus.read8(0xff51), 0xff);
+        assert_eq!(bus.read8(0xff52), 0xff);
+        assert_eq!(bus.read8(0xff53), 0xff);
+        assert_eq!(bus.read8(0xff54), 0xff);
+    }
+
+    #[test]
+    fn cgb_can_cancel_hblank_dma_without_copying_remaining_blocks() {
+        let mut bus = cgb_bus();
+        for offset in 0..32u16 {
+            bus.write8(0xc000 + offset, 0x40 | offset as u8);
+        }
+        bus.write8(0xff51, 0xc0);
+        bus.write8(0xff52, 0x00);
+        bus.write8(0xff53, 0x00);
+        bus.write8(0xff54, 0x00);
+        bus.write8(0xff55, 0x81);
+
+        bus.tick(252);
+        assert_eq!(bus.read8(0xff55), 0x00);
+        bus.write8(0xff55, 0x00);
+        assert_eq!(bus.read8(0xff55), 0x80);
+
+        bus.tick(456);
+        assert_eq!(bus.peek_byte(0x800f), 0x4f);
+        assert_eq!(bus.peek_byte(0x8010), 0x00);
     }
 
     #[test]
