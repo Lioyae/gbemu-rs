@@ -257,6 +257,13 @@ impl Bus {
             0xff56 => 0xff,
             0xff68..=0xff6b if self.model == HardwareModel::Cgb => self.ppu.read_register(address),
             0xff70 if self.model == HardwareModel::Cgb => 0xf8 | self.wram_bank,
+            0xff72..=0xff74 if self.model == HardwareModel::Cgb => {
+                self.io[(address - 0xff00) as usize]
+            }
+            0xff75 if self.model == HardwareModel::Cgb => {
+                0x8f | (self.io[(address - 0xff00) as usize] & 0x70)
+            }
+            0xff72..=0xff75 => 0xff,
             0xff4c..=0xff7f => self.io[(address - 0xff00) as usize],
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize],
             0xffff => self.interrupt_enable,
@@ -326,6 +333,13 @@ impl Bus {
                     self.wram_bank = 1;
                 }
             }
+            0xff72..=0xff74 if self.model == HardwareModel::Cgb => {
+                self.io[(address - 0xff00) as usize] = value;
+            }
+            0xff75 if self.model == HardwareModel::Cgb => {
+                self.io[(address - 0xff00) as usize] = value & 0x70;
+            }
+            0xff72..=0xff75 => {}
             0xff4c..=0xff7f => self.io[(address - 0xff00) as usize] = value,
             0xff80..=0xfffe => self.hram[(address - 0xff80) as usize] = value,
             0xffff => self.interrupt_enable = value,
@@ -768,6 +782,38 @@ mod tests {
         bus.write8(0xff56, 0x01);
 
         assert_eq!(bus.read8(0xff56), 0xff);
+    }
+
+    #[test]
+    fn cgb_exposes_undocumented_scratch_registers_with_hardware_masks() {
+        let mut bus = cgb_bus();
+
+        assert_eq!(bus.read8(0xff72), 0x00);
+        assert_eq!(bus.read8(0xff73), 0x00);
+        assert_eq!(bus.read8(0xff74), 0x00);
+        assert_eq!(bus.read8(0xff75), 0x8f);
+
+        bus.write8(0xff72, 0x12);
+        bus.write8(0xff73, 0x34);
+        bus.write8(0xff74, 0x56);
+        bus.write8(0xff75, 0xff);
+
+        assert_eq!(bus.read8(0xff72), 0x12);
+        assert_eq!(bus.read8(0xff73), 0x34);
+        assert_eq!(bus.read8(0xff74), 0x56);
+        assert_eq!(bus.read8(0xff75), 0xff);
+        bus.write8(0xff75, 0x00);
+        assert_eq!(bus.read8(0xff75), 0x8f);
+    }
+
+    #[test]
+    fn dmg_hides_cgb_undocumented_scratch_registers() {
+        let mut bus = test_bus();
+
+        for address in 0xff72..=0xff75 {
+            bus.write8(address, 0x00);
+            assert_eq!(bus.read8(address), 0xff);
+        }
     }
 
     #[test]
