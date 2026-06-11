@@ -295,6 +295,7 @@ fn render_library(frame: &mut Frame, launcher: &Launcher, area: Rect) {
             ListItem::new(Line::from(vec![
                 Span::styled(&entry.title, Style::default().fg(Color::White)),
                 Span::raw(format!("  [{}]", entry.cartridge_type)),
+                Span::styled(save_marker(entry), Style::default().fg(Color::Green)),
             ]))
         })
         .collect();
@@ -358,14 +359,63 @@ fn render_browser(frame: &mut Frame, launcher: &Launcher, area: Rect) {
 }
 
 fn render_rom_detail(entry: &RomEntry) -> String {
+    let state_slots = entry
+        .save_status
+        .state_slots
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, exists)| exists.then_some(slot.to_string()))
+        .collect::<Vec<_>>();
+    let state_status = if state_slots.is_empty() {
+        "无".to_owned()
+    } else {
+        format!("槽位 {}", state_slots.join("、"))
+    };
     format!(
-        "标题：{}\n\n卡带：{}\n模式：{:?}\n大小：{} KiB\n\n路径：{}",
+        "标题：{}\n\n卡带：{}\n模式：{}\nROM 容量：{}\nRAM 容量：{}\n文件大小：{}\n\n卡带存档：{}\nRTC 存档：{}\n即时存档：{}\n\n路径：{}",
         entry.title,
         entry.cartridge_type,
-        entry.cgb_support,
-        entry.file_size / 1024,
+        cgb_support_name(entry.cgb_support),
+        format_capacity(entry.rom_size as u64),
+        format_capacity(entry.ram_size as u64),
+        format_capacity(entry.file_size),
+        existence_name(entry.save_status.sav),
+        existence_name(entry.save_status.rtc),
+        state_status,
         entry.path.display()
     )
+}
+
+fn save_marker(entry: &RomEntry) -> &'static str {
+    if entry.save_status.any() {
+        " [有存档]"
+    } else {
+        ""
+    }
+}
+
+fn cgb_support_name(support: crate::cartridge::CgbSupport) -> &'static str {
+    match support {
+        crate::cartridge::CgbSupport::DmgOnly => "仅 GB",
+        crate::cartridge::CgbSupport::Compatible => "GB/GBC 兼容",
+        crate::cartridge::CgbSupport::Required => "仅 GBC",
+    }
+}
+
+fn format_capacity(bytes: u64) -> String {
+    if bytes == 0 {
+        "无".to_owned()
+    } else if bytes.is_multiple_of(1024 * 1024) {
+        format!("{} MiB", bytes / (1024 * 1024))
+    } else if bytes.is_multiple_of(1024) {
+        format!("{} KiB", bytes / 1024)
+    } else {
+        format!("{bytes} 字节")
+    }
+}
+
+fn existence_name(exists: bool) -> &'static str {
+    if exists { "已存在" } else { "无" }
 }
 
 fn browser_sort_key(entry: &BrowserEntry) -> String {
@@ -411,6 +461,20 @@ impl Drop for LauncherTerminalGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::library::RomSaveStatus;
+
+    fn rom_entry(path: &str, title: &str, cgb_support: crate::cartridge::CgbSupport) -> RomEntry {
+        RomEntry {
+            path: PathBuf::from(path),
+            title: title.to_owned(),
+            cartridge_type: crate::cartridge::CartridgeType::RomOnly,
+            cgb_support,
+            file_size: 32 * 1024,
+            rom_size: 32 * 1024,
+            ram_size: 0,
+            save_status: RomSaveStatus::default(),
+        }
+    }
 
     #[test]
     fn moves_library_selection_without_leaving_bounds() {
@@ -418,20 +482,8 @@ mod tests {
             config: LibraryConfig::default(),
             scan: ScanResult {
                 entries: vec![
-                    RomEntry {
-                        path: PathBuf::from("a.gb"),
-                        title: "A".to_owned(),
-                        cartridge_type: crate::cartridge::CartridgeType::RomOnly,
-                        cgb_support: crate::cartridge::CgbSupport::DmgOnly,
-                        file_size: 32 * 1024,
-                    },
-                    RomEntry {
-                        path: PathBuf::from("b.gbc"),
-                        title: "B".to_owned(),
-                        cartridge_type: crate::cartridge::CartridgeType::RomOnly,
-                        cgb_support: crate::cartridge::CgbSupport::Compatible,
-                        file_size: 32 * 1024,
-                    },
+                    rom_entry("a.gb", "A", crate::cartridge::CgbSupport::DmgOnly),
+                    rom_entry("b.gbc", "B", crate::cartridge::CgbSupport::Compatible),
                 ],
                 errors: Vec::new(),
             },
@@ -449,5 +501,25 @@ mod tests {
         launcher.move_selection(true);
         assert_eq!(launcher.selected, 1);
         assert_eq!(launcher.activate(), Some(PathBuf::from("b.gbc")));
+    }
+
+    #[test]
+    fn renders_chinese_rom_details_and_save_status() {
+        let mut entry = rom_entry("color.gbc", "COLOR", crate::cartridge::CgbSupport::Required);
+        entry.ram_size = 32 * 1024;
+        entry.save_status.sav = true;
+        entry.save_status.rtc = true;
+        entry.save_status.state_slots[2] = true;
+        entry.save_status.state_slots[7] = true;
+
+        let detail = render_rom_detail(&entry);
+
+        assert!(detail.contains("模式：仅 GBC"));
+        assert!(detail.contains("ROM 容量：32 KiB"));
+        assert!(detail.contains("RAM 容量：32 KiB"));
+        assert!(detail.contains("卡带存档：已存在"));
+        assert!(detail.contains("RTC 存档：已存在"));
+        assert!(detail.contains("即时存档：槽位 2、7"));
+        assert_eq!(save_marker(&entry), " [有存档]");
     }
 }
