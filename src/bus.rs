@@ -251,6 +251,10 @@ impl Bus {
             0xff50 => u8::from(!self.boot_rom_enabled),
             0xff51..=0xff54 if self.model == HardwareModel::Cgb => 0xff,
             0xff55 if self.model == HardwareModel::Cgb => self.hdma_status(),
+            0xff56 if self.model == HardwareModel::Cgb => {
+                (self.io[(address - 0xff00) as usize] & 0xc1) | 0x3e
+            }
+            0xff56 => 0xff,
             0xff68..=0xff6b if self.model == HardwareModel::Cgb => self.ppu.read_register(address),
             0xff70 if self.model == HardwareModel::Cgb => 0xf8 | self.wram_bank,
             0xff4c..=0xff7f => self.io[(address - 0xff00) as usize],
@@ -309,6 +313,10 @@ impl Bus {
                     (self.hdma_destination & 0x1f00) | 0x8000 | u16::from(value & 0xf0);
             }
             0xff55 if self.model == HardwareModel::Cgb => self.start_hdma(value),
+            0xff56 if self.model == HardwareModel::Cgb => {
+                self.io[(address - 0xff00) as usize] = value & 0xc1;
+            }
+            0xff56 => {}
             0xff68..=0xff6b if self.model == HardwareModel::Cgb => {
                 self.ppu.write_register(address, value);
             }
@@ -740,6 +748,26 @@ mod tests {
         assert_eq!(bus.read8(0xff02) & 0x80, 0);
         assert_eq!(bus.read8(0xff01), 0xff);
         assert_ne!(bus.read8(0xff0f) & Interrupt::Serial as u8, 0);
+    }
+
+    #[test]
+    fn cgb_infrared_port_masks_control_bits_and_reports_no_signal() {
+        let mut bus = cgb_bus();
+
+        assert_eq!(bus.read8(0xff56), 0x3e);
+        bus.write8(0xff56, 0xff);
+        assert_eq!(bus.read8(0xff56), 0xff);
+        bus.write8(0xff56, 0x01);
+        assert_eq!(bus.read8(0xff56), 0x3f);
+    }
+
+    #[test]
+    fn dmg_does_not_expose_cgb_infrared_port() {
+        let mut bus = test_bus();
+
+        bus.write8(0xff56, 0x01);
+
+        assert_eq!(bus.read8(0xff56), 0xff);
     }
 
     #[test]
