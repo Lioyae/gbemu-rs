@@ -221,11 +221,11 @@ impl Ppu {
             0xff4a => self.wy,
             0xff4b => self.wx,
             0xff68 if self.model == HardwareModel::Cgb => self.bg_palette_index | 0x40,
-            0xff69 if self.model == HardwareModel::Cgb => {
+            0xff69 if self.model == HardwareModel::Cgb && self.mode != LcdMode::Drawing => {
                 self.bg_palette_data[usize::from(self.bg_palette_index & 0x3f)]
             }
             0xff6a if self.model == HardwareModel::Cgb => self.obj_palette_index | 0x40,
-            0xff6b if self.model == HardwareModel::Cgb => {
+            0xff6b if self.model == HardwareModel::Cgb && self.mode != LcdMode::Drawing => {
                 self.obj_palette_data[usize::from(self.obj_palette_index & 0x3f)]
             }
             _ => 0xff,
@@ -249,7 +249,9 @@ impl Ppu {
             0xff68 if self.model == HardwareModel::Cgb => self.bg_palette_index = value & 0xbf,
             0xff69 if self.model == HardwareModel::Cgb => {
                 let index = usize::from(self.bg_palette_index & 0x3f);
-                self.bg_palette_data[index] = value;
+                if self.mode != LcdMode::Drawing {
+                    self.bg_palette_data[index] = value;
+                }
                 if self.bg_palette_index & 0x80 != 0 {
                     self.bg_palette_index =
                         (self.bg_palette_index & 0x80) | ((self.bg_palette_index + 1) & 0x3f);
@@ -258,7 +260,9 @@ impl Ppu {
             0xff6a if self.model == HardwareModel::Cgb => self.obj_palette_index = value & 0xbf,
             0xff6b if self.model == HardwareModel::Cgb => {
                 let index = usize::from(self.obj_palette_index & 0x3f);
-                self.obj_palette_data[index] = value;
+                if self.mode != LcdMode::Drawing {
+                    self.obj_palette_data[index] = value;
+                }
                 if self.obj_palette_index & 0x80 != 0 {
                     self.obj_palette_index =
                         (self.obj_palette_index & 0x80) | ((self.obj_palette_index + 1) & 0x3f);
@@ -812,6 +816,33 @@ mod tests {
         assert_eq!(ppu.read_register(0xff69), 0x1f);
         ppu.write_register(0xff68, 0x01);
         assert_eq!(ppu.read_register(0xff69), 0x00);
+    }
+
+    #[test]
+    fn cgb_blocks_palette_data_during_drawing_but_still_increments_index() {
+        let mut ppu = Ppu::post_boot_for_model(HardwareModel::Cgb);
+        ppu.write_register(0xff68, 0x80);
+        ppu.write_register(0xff69, 0x12);
+        ppu.write_register(0xff6a, 0x80);
+        ppu.write_register(0xff6b, 0x34);
+
+        ppu.tick(80);
+        assert_eq!(ppu.mode(), LcdMode::Drawing);
+        ppu.write_register(0xff68, 0x80);
+        ppu.write_register(0xff6a, 0x80);
+        assert_eq!(ppu.read_register(0xff69), 0xff);
+        assert_eq!(ppu.read_register(0xff6b), 0xff);
+
+        ppu.write_register(0xff69, 0x56);
+        ppu.write_register(0xff6b, 0x78);
+        assert_eq!(ppu.read_register(0xff68), 0xc1);
+        assert_eq!(ppu.read_register(0xff6a), 0xc1);
+
+        ppu.tick(172);
+        ppu.write_register(0xff68, 0x00);
+        ppu.write_register(0xff6a, 0x00);
+        assert_eq!(ppu.read_register(0xff69), 0x12);
+        assert_eq!(ppu.read_register(0xff6b), 0x34);
     }
 
     #[test]
