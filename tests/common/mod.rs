@@ -25,7 +25,7 @@ pub fn run_rom_bytes(rom: Vec<u8>, cycle_limit: u64) -> Result<RomTestResult, Em
 
     while cycles < cycle_limit {
         cycles += u64::from(emulator.step_instruction()?);
-        if emulator.read_memory(0xff02) == 0x81 {
+        if emulator.read_memory(0xff02) & 0x81 == 0x81 {
             output.push(char::from(emulator.read_memory(0xff01)));
             emulator.write_memory(0xff02, 0x00);
         }

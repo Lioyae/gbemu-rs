@@ -5,6 +5,7 @@ use crate::{
     joypad::{Joypad, JoypadButton},
     model::HardwareModel,
     ppu::{Ppu, framebuffer::Framebuffer},
+    serial::Serial,
     timer::Timer,
 };
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,7 @@ pub struct Bus {
     io: Vec<u8>,
     hram: Vec<u8>,
     timer: Timer,
+    serial: Serial,
     joypad: Joypad,
     ppu: Ppu,
     interrupt_flags: u8,
@@ -74,6 +76,7 @@ impl Bus {
             io: vec![0; IO_SIZE],
             hram: vec![0; HRAM_SIZE],
             timer: Timer::new(),
+            serial: Serial::new(model),
             joypad: Joypad::new(),
             ppu: if boot_rom_enabled {
                 Ppu::power_on_for_model(model)
@@ -108,6 +111,9 @@ impl Bus {
     pub fn tick(&mut self, cycles: u32) {
         if self.timer.tick(cycles) {
             self.request_interrupt(Interrupt::Timer);
+        }
+        if self.serial.tick(cycles) {
+            self.request_interrupt(Interrupt::Serial);
         }
         let ppu_cycles = if self.double_speed {
             cycles / 2
@@ -230,7 +236,8 @@ impl Bus {
             0xfe00..=0xfe9f => self.ppu.read_oam(address),
             0xfea0..=0xfeff => 0xff,
             0xff00 => self.joypad.read(),
-            0xff01..=0xff03 => self.io[(address - 0xff00) as usize],
+            0xff01..=0xff02 => self.serial.read(address),
+            0xff03 => self.io[(address - 0xff00) as usize],
             0xff04..=0xff07 => self.timer.read(address),
             0xff08..=0xff0e => self.io[(address - 0xff00) as usize],
             0xff0f => self.interrupt_flags,
@@ -273,7 +280,8 @@ impl Bus {
                     self.request_interrupt(Interrupt::Joypad);
                 }
             }
-            0xff01..=0xff03 => self.io[(address - 0xff00) as usize] = value,
+            0xff01..=0xff02 => self.serial.write(address, value),
+            0xff03 => self.io[(address - 0xff00) as usize] = value,
             0xff04..=0xff07 => self.timer.write(address, value),
             0xff08..=0xff0e => self.io[(address - 0xff00) as usize] = value,
             0xff0f => self.interrupt_flags = value | 0xe0,
@@ -655,6 +663,53 @@ mod tests {
 
         assert_eq!(bus.read8(0xff00) & 0x0f, 0x0e);
         assert_ne!(bus.read8(0xff0f) & Interrupt::Joypad as u8, 0);
+    }
+
+    #[test]
+    fn internal_serial_transfer_completes_and_requests_interrupt() {
+        let mut bus = test_bus();
+        bus.write8(0xff0f, 0x00);
+        bus.write8(0xff01, 0x55);
+        bus.write8(0xff02, 0x81);
+
+        bus.tick(4_095);
+        assert_ne!(bus.read8(0xff02) & 0x80, 0);
+        assert_eq!(bus.read8(0xff0f) & Interrupt::Serial as u8, 0);
+
+        bus.tick(1);
+        assert_eq!(bus.read8(0xff02) & 0x80, 0);
+        assert_eq!(bus.read8(0xff01), 0xff);
+        assert_ne!(bus.read8(0xff0f) & Interrupt::Serial as u8, 0);
+    }
+
+    #[test]
+    fn external_serial_clock_waits_for_a_link_peer() {
+        let mut bus = test_bus();
+        bus.write8(0xff0f, 0x00);
+        bus.write8(0xff01, 0x55);
+        bus.write8(0xff02, 0x80);
+
+        bus.tick(10_000);
+
+        assert_ne!(bus.read8(0xff02) & 0x80, 0);
+        assert_eq!(bus.read8(0xff01), 0x55);
+        assert_eq!(bus.read8(0xff0f) & Interrupt::Serial as u8, 0);
+    }
+
+    #[test]
+    fn cgb_fast_serial_transfer_completes_in_one_hundred_twenty_eight_cycles() {
+        let mut bus = cgb_bus();
+        bus.write8(0xff0f, 0x00);
+        bus.write8(0xff01, 0x00);
+        bus.write8(0xff02, 0x83);
+
+        bus.tick(127);
+        assert_ne!(bus.read8(0xff02) & 0x80, 0);
+
+        bus.tick(1);
+        assert_eq!(bus.read8(0xff02) & 0x80, 0);
+        assert_eq!(bus.read8(0xff01), 0xff);
+        assert_ne!(bus.read8(0xff0f) & Interrupt::Serial as u8, 0);
     }
 
     #[test]

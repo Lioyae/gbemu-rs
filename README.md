@@ -14,6 +14,7 @@ Game Boy Color 模拟器。界面基于 Ratatui 和 Crossterm，提供 ROM 启�
 - DMG/CGB 内存映射、CGB WRAM/VRAM 分 bank、Echo RAM、HRAM、IF/IE。
 - OAM DMA、CGB GDMA 与 HBlank DMA。
 - DIV、TIMA、TMA、TAC 及定时器中断。
+- DMG/CGB 串口内部时钟、CGB 快速模式和串口中断。
 - 八个 Game Boy 按键与 Joypad 中断。
 - DMG 灰度渲染和 CGB 15 位彩色背景、窗口、精灵与调色板。
 - 自动根据卡带头选择 DMG 或 CGB 模式。
@@ -188,6 +189,7 @@ src/
   cpu/          寄存器、指令执行和中断
   ppu/          DMG/CGB LCD 时序、渲染和帧缓冲
   save/         卡带持久数据文件
+  serial.rs     串口时钟、移位与中断
   tui/          ROM 启动器、游戏、调试和对话框
   app.rs        游戏输入、存档和应用状态
   bus.rs        DMG/CGB 地址空间与设备路由
@@ -204,7 +206,7 @@ src/
 ## 已知限制
 
 - 尚未实现 APU 和音频输出。
-- 尚未实现倒带、作弊和联机线。
+- 尚未实现倒带、作弊和两个模拟器之间的联机线；断线串口输入固定为高电平。
 - PPU 使用固定 Mode 3 周期模型，未实现逐点像素 FIFO 和全部总线争用细节。
 - GDMA/HDMA 的传输与 CPU 暂停时序仍是近似模型。
 - Pocket Camera、红外、倾斜传感器和震动没有接入真实主机设备。
