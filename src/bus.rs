@@ -296,7 +296,7 @@ impl Bus {
             }
             0xff01..=0xff02 => self.serial.write(address, value),
             0xff03 => self.io[(address - 0xff00) as usize] = value,
-            0xff04..=0xff07 => self.timer.write(address, value),
+            0xff04..=0xff07 => self.timer.write_for_model(address, value, self.model),
             0xff08..=0xff0e => self.io[(address - 0xff00) as usize] = value,
             0xff0f => self.interrupt_flags = value | 0xe0,
             0xff10..=0xff3f => self.io[(address - 0xff00) as usize] = value,

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::model::HardwareModel;
+
 #[derive(Serialize, Deserialize)]
 pub struct Timer {
     divider: u16,
@@ -31,6 +33,10 @@ impl Timer {
     }
 
     pub fn write(&mut self, address: u16, value: u8) {
+        self.write_for_model(address, value, HardwareModel::Dmg);
+    }
+
+    pub fn write_for_model(&mut self, address: u16, value: u8, model: HardwareModel) {
         match address {
             0xff04 => {
                 let old_signal = self.timer_signal();
@@ -52,7 +58,9 @@ impl Timer {
             0xff07 => {
                 let old_signal = self.timer_signal();
                 self.tac = value & 0x07;
-                self.apply_falling_edge(old_signal);
+                if model == HardwareModel::Dmg || self.tac & 0x04 != 0 {
+                    self.apply_falling_edge(old_signal);
+                }
             }
             _ => {}
         }
@@ -201,5 +209,37 @@ mod tests {
         timer.tick(1);
         timer.write(0xff05, 0x77);
         assert_eq!(timer.read(0xff05), 0x77);
+    }
+
+    #[test]
+    fn disabling_timer_ticks_only_on_dmg() {
+        for (model, expected) in [
+            (crate::model::HardwareModel::Dmg, 1),
+            (crate::model::HardwareModel::Cgb, 0),
+        ] {
+            let mut timer = Timer::new();
+            timer.write_for_model(0xff07, 0x05, model);
+            timer.tick(8);
+
+            timer.write_for_model(0xff07, 0x00, model);
+
+            assert_eq!(timer.read(0xff05), expected, "{model:?}");
+        }
+    }
+
+    #[test]
+    fn changing_from_high_to_low_clock_source_ticks_on_both_models() {
+        for model in [
+            crate::model::HardwareModel::Dmg,
+            crate::model::HardwareModel::Cgb,
+        ] {
+            let mut timer = Timer::new();
+            timer.write_for_model(0xff07, 0x05, model);
+            timer.tick(8);
+
+            timer.write_for_model(0xff07, 0x06, model);
+
+            assert_eq!(timer.read(0xff05), 1, "{model:?}");
+        }
     }
 }
